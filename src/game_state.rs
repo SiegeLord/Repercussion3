@@ -1,0 +1,231 @@
+use crate::error::Result;
+use crate::{ui, utils};
+use allegro::*;
+use allegro_font::*;
+use allegro_image::*;
+use allegro_primitives::*;
+use allegro_ttf::*;
+use nalgebra::Point2;
+use serde_derive::{Deserialize, Serialize};
+use slhack::hack_state::HackState;
+use slhack::{atlas, controls, deferred, hack_state, scene, sfx, sprite};
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, HashMap};
+use std::{fmt, path, sync};
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const DT: f32 = 1. / 60.;
+
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[repr(i32)]
+pub enum MaterialKind
+{
+	Static = 0,
+	Dynamic = 1,
+	Fullbright = 2,
+	NumMaterials = 3,
+}
+
+pub fn shader_replacements() -> Vec<(&'static str, &'static str)>
+{
+	vec![]
+}
+
+impl Into<i32> for MaterialKind
+{
+	fn into(self) -> i32
+	{
+		self as i32
+	}
+}
+
+slhack::actions! {
+	Action
+	{
+		RotateViewLeft = [Some(controls::Input::MouseXNeg), None],
+		RotateViewRight = [Some(controls::Input::MouseXPos), None],
+		RotateViewUp = [Some(controls::Input::MouseYNeg), None],
+		RotateViewDown = [Some(controls::Input::MouseYPos), None],
+		RotateView = [Some(controls::Input::MouseButton(3)), None],
+		MoveViewLeft = [Some(controls::Input::Keyboard(KeyCode::A)), None],
+		MoveViewRight = [Some(controls::Input::Keyboard(KeyCode::D)), None],
+		MoveViewForward = [Some(controls::Input::Keyboard(KeyCode::W)), None],
+		MoveViewBackward = [Some(controls::Input::Keyboard(KeyCode::S)), None],
+		MoveViewUp = [Some(controls::Input::Keyboard(KeyCode::Space)), None],
+		MoveViewDown = [Some(controls::Input::Keyboard(KeyCode::LShift)), None],
+		ZoomIn = [Some(controls::Input::MouseZPos), None],
+		ZoomOut = [Some(controls::Input::MouseZNeg), None],
+		SelectSource = [Some(controls::Input::MouseButton(1)), None],
+		SelectTarget = [Some(controls::Input::MouseButton(2)), None],
+		SwitchPathStyle = [Some(controls::Input::Keyboard(KeyCode::Enter)), None],
+	}
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Options
+{
+	pub version: String,
+	pub gfx: hack_state::GfxOptions,
+
+	pub play_music: bool,
+	pub sfx_volume: f32,
+	pub music_volume: f32,
+	pub camera_speed: f32,
+	pub controls: controls::Controls<Action>,
+}
+
+impl Default for Options
+{
+	fn default() -> Self
+	{
+		Self {
+			version: VERSION.to_string(),
+			gfx: hack_state::GfxOptions {
+				fullscreen: false,
+				width: 960,
+				height: 864,
+				vsync_method: if cfg!(target_os = "windows") { 1 } else { 2 },
+				grab_mouse: false,
+				ui_scale: 1.,
+				frac_scale: true,
+			},
+			play_music: false,
+			sfx_volume: 1.,
+			music_volume: 1.,
+			camera_speed: 2.,
+			controls: Action::new_controls(),
+		}
+	}
+}
+
+type Scene = scene::Scene<MaterialKind>;
+
+#[derive(Debug)]
+pub enum NextScreen
+{
+	Game,
+	Menu,
+	InGameMenu,
+	Quit,
+}
+
+pub struct GameState
+{
+	pub sfx: sfx::Sfx,
+	pub atlas: atlas::Atlas,
+	pub options: Options,
+	pub controls: controls::ControlsHandler<Action>,
+
+	pub basic_shader: Option<Shader>,
+
+	bitmaps: HashMap<String, Bitmap>,
+	sprites: HashMap<String, sprite::Sprite>,
+
+	// Has to be last!
+	pub hs: hack_state::HackState,
+}
+
+pub fn load_options(core: &Core) -> Result<Options>
+{
+	Ok(
+		utils::load_user_data_deferred(core, "options.cfg", |user_data| {
+			let version = semver::Version::parse(VERSION).unwrap();
+			if let Some(config_version) = user_data.version.as_ref()
+			{
+				if version.major == config_version.major && version.minor == config_version.minor
+				{
+					user_data.parse()
+				}
+				else
+				{
+					// TODO: Migrate previous versions.
+					Ok(None)
+				}
+			}
+			else
+			{
+				Ok(None)
+			}
+		})?
+		.unwrap_or_default(),
+	)
+}
+
+pub fn save_options(core: &Core, options: &Options) -> Result<()>
+{
+	Ok(utils::save_user_data(core, "options.cfg", options)?)
+}
+
+impl GameState
+{
+	pub fn new() -> Result<Self>
+	{
+		let mut options = Options::default();
+		let hack_load_options = |core: &Core| -> slhack::error::Result<hack_state::GfxOptions> {
+			options = load_options(core).map_err(Into::<slhack::error::Error>::into)?;
+			Ok(options.gfx.clone())
+		};
+		let hack_state =
+			hack_state::HackState::new("Repercussion 3", hack_load_options, Some((640, 480)))?;
+
+		let sfx = sfx::Sfx::new(options.sfx_volume, options.music_volume, &hack_state.core)?;
+		//sfx.set_music_file("data/lemonade-sinus.xm");
+		//sfx.play_music()?;
+
+		let controls = controls::ControlsHandler::new(options.controls.clone(), 1.);
+		Ok(Self {
+			options: options,
+			bitmaps: HashMap::new(),
+			sprites: HashMap::new(),
+			sfx: sfx,
+			atlas: atlas::Atlas::new(1024),
+			controls: controls,
+			basic_shader: None,
+			hs: hack_state,
+		})
+	}
+
+	pub fn resize_display(&mut self) -> Result<()>
+	{
+		Ok(self
+			.hs
+			.resize_display("data/Energon.ttf", -16.0, &self.options.gfx)?)
+	}
+
+	pub fn cache_bitmap<'l>(&'l mut self, name: &str) -> Result<&'l Bitmap>
+	{
+		Ok(match self.bitmaps.entry(name.to_string())
+		{
+			Entry::Occupied(o) => o.into_mut(),
+			Entry::Vacant(v) => v.insert(utils::load_bitmap(&self.hs.core, name)?),
+		})
+	}
+
+	pub fn cache_sprite<'l>(&'l mut self, name: &str) -> Result<&'l sprite::Sprite>
+	{
+		Ok(match self.sprites.entry(name.to_string())
+		{
+			Entry::Occupied(o) => o.into_mut(),
+			Entry::Vacant(v) =>
+			{
+				v.insert(sprite::Sprite::load(name, &self.hs.core, &mut self.atlas)?)
+			}
+		})
+	}
+
+	pub fn get_bitmap<'l>(&'l self, name: &str) -> Result<&'l Bitmap>
+	{
+		Ok(self
+			.bitmaps
+			.get(name)
+			.ok_or_else(|| format!("{name} is not cached!"))?)
+	}
+
+	pub fn get_sprite<'l>(&'l self, name: &str) -> Result<&'l sprite::Sprite>
+	{
+		Ok(self
+			.sprites
+			.get(name)
+			.ok_or_else(|| format!("{name} is not cached!"))?)
+	}
+}

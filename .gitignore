@@ -1,0 +1,9 @@
+options.cfg
+save.cfg
+game.log
+allegro5.cfg
+target
+raw
+/*.mp4
+/*.png
+/*.jpg
