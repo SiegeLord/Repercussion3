@@ -140,7 +140,7 @@ fn spawn_player(
 		comps::Gravity,
 		comps::DemonHolder::new(),
 		comps::Drill::new(),
-		comps::Light::new(Color::from_rgb_f(0.01, 0.01, 0.01), 0.),
+		comps::Light::new(Color::from_rgba(0, 0, 0, 6), 0.),
 	));
 
 	Ok(entity)
@@ -231,6 +231,15 @@ impl Map
 		let pos = Point2::new(tiles::TILE_SIZE * 8., tiles::TILE_SIZE * 10.);
 		spawn_demon(
 			comps::DemonKind::Demon2,
+			pos,
+			Vector2::zeros(),
+			&mut world,
+			state,
+		)?;
+
+		let pos = Point2::new(tiles::TILE_SIZE * 14., tiles::TILE_SIZE * 10.);
+		spawn_demon(
+			comps::DemonKind::Demon3,
 			pos,
 			Vector2::zeros(),
 			&mut world,
@@ -832,7 +841,7 @@ impl Map
 					z: 0.,
 					u: (offt.x + rad) / (2. * rad),
 					v: (offt.y + rad) / (2. * rad),
-					color: Color::from_rgb_f(r, g, b),
+					color: light.color, //Color::from_rgb_f(r, g, b),
 				});
 			}
 		}
@@ -847,6 +856,7 @@ impl Map
 		//state.hs.core.draw_bitmap(state.get_bitmap("data/circle.png").unwrap(), 50., 50., Flag::zero());
 
 		let rc_buffer = game_state::light_pass(state);
+		//return Ok(());
 
 		// Draw map.
 		let mut batch = draw_batch::DrawBatch::new();

@@ -92,7 +92,7 @@ vec4 radiance_cascades()
     float shortest_side = min(bitmap_size.x, bitmap_size.y);
     vec2 scale = shortest_side * step_size;
 
-    float modifier_hack = 1.;
+    float modifier_hack = 0.25;
 
     float interval_start = first_level ? 0. : (modifier_hack * pow(base, cascade_index - 1.)) / shortest_side;
     float interval_length = (modifier_hack * pow(base, cascade_index)) / shortest_side;
@@ -124,8 +124,9 @@ vec4 radiance_cascades()
 
             if (dist <= min_step_size)
             {
-                vec4 src_color = 10. * pow(texture2D(al_tex, flip_y(src_uv)), vec4(POWER));
-                radiance_delta += src_color;
+                vec4 src_color_raw = texture2D(al_tex, flip_y(src_uv));
+                vec4 src_color = 10. * pow(src_color_raw, vec4(POWER));
+                radiance_delta += src_color;// * src_color_raw.a;
                 break;
             }
             
@@ -136,7 +137,7 @@ vec4 radiance_cascades()
 
         bool non_opaque = radiance_delta.a == 0.;
 
-        if (cascade_index < num_cascades - 1.0 && non_opaque)
+        if (cascade_index < num_cascades - 1.0)// && non_opaque)
         {
             float upper_spacing = pow(sqrt_base, cascade_index + 1.);
             vec2 upper_size = floor(bitmap_size / upper_spacing);
@@ -146,7 +147,13 @@ vec4 radiance_cascades()
             vec2 clamped = clamp(offt, vec2(0.5), upper_size - 0.5);
 
             vec4 upper_sample = texture2D(prev_cascade, flip_y((upper_pos + clamped) / bitmap_size));
-            radiance_delta += upper_sample;
+            vec4 upper_sample2 = texture2D(prev_cascade, flip_y((upper_pos + clamped + vec2(1., 1.)) / bitmap_size));
+            vec4 upper_sample3 = texture2D(prev_cascade, flip_y((upper_pos + clamped + vec2(1., -1.)) / bitmap_size));
+            vec4 upper_sample4 = texture2D(prev_cascade, flip_y((upper_pos + clamped + vec2(-1., 1.)) / bitmap_size));
+            vec4 upper_sample5 = texture2D(prev_cascade, flip_y((upper_pos + clamped + vec2(-1., -1.)) / bitmap_size));
+            upper_sample = mix(mix(mix(mix(upper_sample, upper_sample2, 0.5), upper_sample3, 0.33), upper_sample4, 0.25), upper_sample5, 0.2);
+            //radiance_delta += upper_sample;
+            radiance_delta = vec4(radiance_delta.rgb, 1) * radiance_delta.a + vec4(upper_sample.rgb, 1) * (1. - radiance_delta.a);
         }
 
         radiance += radiance_delta;

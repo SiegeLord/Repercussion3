@@ -84,8 +84,8 @@ impl Default for Options
 			version: VERSION.to_string(),
 			gfx: hack_state::GfxOptions {
 				fullscreen: false,
-				width: 640 * 3,
-				height: 360 * 3,
+				width: 640 * 2,
+				height: 360 * 2,
 				vsync_method: if cfg!(target_os = "windows") { 1 } else { 2 },
 				grab_mouse: false,
 				ui_scale: 1.,
@@ -349,10 +349,11 @@ pub fn light_pass(state: &GameState) -> Option<&Bitmap>
 		];
 		let diag = buffer_size.norm();
 		let base = 4.0_f32;
-		let num_cascades = (diag.ln() / base.ln()).ceil() + 1.;
+		let num_cascades = ((diag.ln() / base.ln()).ceil() + 1.) as i32;
 
+		//let last_idx = num_cascades - 1;
 		let last_idx = 0;
-		for i in (last_idx..=num_cascades as i32 - 1).rev()
+		for i in (last_idx..=num_cascades - 1).rev()
 		{
 			let src_buffer = buffers[(i % 2) as usize];
 			let dst_buffer = buffers[(1 - i % 2) as usize];
@@ -375,35 +376,38 @@ pub fn light_pass(state: &GameState) -> Option<&Bitmap>
 				.ok();
 			core.set_shader_uniform("last_index", &[(i == last_idx) as i32][..])
 				.ok();
-			core.set_shader_uniform("num_steps", &[16_i32][..]).ok();
+			core.set_shader_uniform("num_steps", &[32_i32][..]).ok();
 			core.draw_bitmap(state.light_buffer.as_ref().unwrap(), 0., 0., Flag::zero());
 		}
 		rc_buffer = buffers[1 - last_idx as usize % 2];
 	}
 
 	// Debug
-	//state.hs.core.set_target_bitmap(state.hs.buffer1.as_ref());
-	//state
-	//	.hs
-	//	.core
-	//	.use_shader(Some(&*state.basic_shader.as_ref().unwrap()))
-	//	.unwrap();
-	//state
-	//	.hs
-	//	.core
-	//	.clear_to_color(Color::from_rgb_f(0.0, 0.0, 0.1));
-	//state
-	//	.hs
-	//	.core
-	//	.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::InverseAlpha);
-	//state.hs.core.draw_bitmap(
-	//	//buffers[num_passes as usize % 2].unwrap(),
-	//	//state.light_buffer.as_ref().unwrap(),
-	//	//state.distance_buffer_fin.as_ref().unwrap(),
-	//	rc_buffer.unwrap(),
-	//	0.,
-	//	0.,
-	//	Flag::zero(),
-	//);
+	if false
+	{
+		state.hs.core.set_target_bitmap(state.hs.buffer1.as_ref());
+		state
+			.hs
+			.core
+			.use_shader(Some(&*state.basic_shader.as_ref().unwrap()))
+			.unwrap();
+		state
+			.hs
+			.core
+			.clear_to_color(Color::from_rgb_f(1.0, 1.0, 1.0));
+		state
+			.hs
+			.core
+			.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::InverseAlpha);
+		state.hs.core.draw_bitmap(
+			//buffers[num_passes as usize % 2].unwrap(),
+			//state.light_buffer.as_ref().unwrap(),
+			//state.distance_buffer_fin.as_ref().unwrap(),
+			rc_buffer.unwrap(),
+			0.,
+			0.,
+			Flag::zero(),
+		);
+	}
 	rc_buffer
 }

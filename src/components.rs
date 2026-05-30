@@ -179,6 +179,7 @@ pub enum DemonKind
 {
 	Demon1,
 	Demon2,
+	Demon3,
 }
 
 impl DemonKind
@@ -189,6 +190,7 @@ impl DemonKind
 		{
 			DemonKind::Demon1 => Color::from_rgb_f(1., 1., 0.),
 			DemonKind::Demon2 => Color::from_rgb_f(0., 1., 1.),
+			DemonKind::Demon3 => Color::from_rgb_f(1., 0., 1.),
 		}
 	}
 }
