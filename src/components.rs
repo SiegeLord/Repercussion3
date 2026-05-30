@@ -1,7 +1,7 @@
 use crate::game_state;
 
 use allegro::*;
-use nalgebra::{Point2, UnitQuaternion, Vector3};
+use nalgebra::{Point2, UnitQuaternion, Vector2};
 use rand::prelude::*;
 use slhack::sprite;
 
@@ -48,6 +48,58 @@ impl Position
 	}
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct Velocity
+{
+	pub pos: Vector2<f32>,
+}
+
+impl Velocity
+{
+	pub fn new() -> Self
+	{
+		Self {
+			pos: Vector2::zeros(),
+		}
+	}
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Acceleration
+{
+	pub pos: Vector2<f32>,
+}
+
+impl Acceleration
+{
+	pub fn new() -> Self
+	{
+		Self {
+			pos: Vector2::zeros(),
+		}
+	}
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Solid
+{
+	pub size: f32,
+	pub on_ground: bool,
+	pub last_on_ground: f64,
+}
+
+impl Solid
+{
+	pub fn new(size: f32) -> Self
+	{
+		Self {
+			size: size,
+			on_ground: false,
+			last_on_ground: 0.,
+		}
+	}
+}
+
 #[derive(Debug, Clone)]
 pub struct Appearance
 {
@@ -69,3 +121,6 @@ impl Appearance
 		}
 	}
 }
+
+#[derive(Debug, Clone)]
+pub struct Gravity;

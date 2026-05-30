@@ -128,7 +128,11 @@ fn spawn_player(
 
 	let entity = world.spawn((
 		comps::Position::new(pos),
+		comps::Acceleration::new(),
+		comps::Velocity::new(),
 		comps::Appearance::new(sprite_name),
+		comps::Solid::new(24.),
+		comps::Gravity,
 	));
 
 	Ok(entity)
@@ -172,6 +176,33 @@ impl Map
 		}
 		self.camera_pos.snapshot();
 
+		let want_move_left = state
+			.controls
+			.get_action_state(game_state::Action::MoveLeft);
+		let want_move_right = state
+			.controls
+			.get_action_state(game_state::Action::MoveRight);
+		let want_jump = state.controls.get_action_state(game_state::Action::Jump) > 0.5;
+
+		if self.world.contains(self.player)
+		{
+			let right_left = want_move_right - want_move_left;
+			if let Ok((solid, acceleration, velocity)) = self.world.query_one_mut::<(
+				&comps::Solid,
+				&mut comps::Acceleration,
+				&mut comps::Velocity,
+			)>(self.player)
+			{
+				let control = if solid.on_ground { 1. } else { 0.5 };
+				acceleration.pos.x = 256. * right_left * control;
+				if want_jump && (state.hs.time() - solid.last_on_ground) < 0.2
+				{
+					velocity.pos.y -= 64.;
+					//println!("Jump: {}", velocity.pos.y);
+				}
+			}
+		}
+
 		// Input.
 		//if state.controls.get_action_state(game_state::Action::Move) > 0.5
 		//{
@@ -181,16 +212,101 @@ impl Map
 		//	}
 		//}
 
-		// Movement.
-		//for (_, position) in self.world.query::<&mut comps::Position>().iter()
-		//{
-		//	position.pos.x += 1500. * DT;
-		//	if position.pos.x > state.buffer_width()
-		//	{
-		//		position.pos.x %= state.buffer_width();
-		//		position.snapshot();
-		//	}
-		//}
+		// Friction.
+		for (_, (velocity, acceleration, solid)) in self
+			.world
+			.query::<(
+				&mut comps::Velocity,
+				&mut comps::Acceleration,
+				&comps::Solid,
+			)>()
+			.iter()
+		{
+			if solid.on_ground && acceleration.pos.x.abs() == 0.
+			{
+				let decel = 2048.;
+				if velocity.pos.x.abs() > 0. && acceleration.pos.x == 0.
+				{
+					if velocity.pos.x.abs() <= decel * DT
+					{
+						velocity.pos.x = 0.;
+					}
+					else
+					{
+						acceleration.pos.x = -velocity.pos.x.signum() * decel;
+					}
+				}
+			}
+		}
+
+		// Gravity.
+		for (_, acceleration) in self.world.query::<&mut comps::Acceleration>().iter()
+		{
+			acceleration.pos.y = 512.;
+		}
+
+		// Velocity
+		for (_, (velocity, acceleration)) in self
+			.world
+			.query::<(&mut comps::Velocity, &mut comps::Acceleration)>()
+			.iter()
+		{
+			velocity.pos += acceleration.pos * DT;
+			let max_speed = 150.;
+			if velocity.pos.x.abs() > max_speed
+			{
+				velocity.pos.x = velocity.pos.x * max_speed / velocity.pos.x.abs();
+			}
+			if velocity.pos.y.abs() > max_speed
+			{
+				velocity.pos.y = velocity.pos.y * max_speed / velocity.pos.y.abs();
+			}
+		}
+
+		// Position.
+		for (_, (position, velocity)) in self
+			.world
+			.query::<(&mut comps::Position, &comps::Velocity)>()
+			.iter()
+		{
+			position.pos += velocity.pos * DT;
+		}
+
+		// Solid.
+		for (_, (position, velocity, solid)) in self
+			.world
+			.query::<(
+				&mut comps::Position,
+				&mut comps::Velocity,
+				&mut comps::Solid,
+			)>()
+			.iter()
+		{
+			if let Some(escape_dir) = self.tiles.get_escape_dir(
+				position.pos + Vector2::new(solid.size, solid.size) / 2.,
+				solid.size / 2.,
+				tiles::TileKind::Rock,
+			)
+			{
+				position.pos += escape_dir;
+				solid.on_ground = escape_dir.y < -1e-3;
+				if solid.on_ground
+				{
+					solid.last_on_ground = state.hs.time();
+				}
+				let norm_escape_dir = escape_dir.normalize();
+				if velocity.pos.norm() > 0.
+				{
+					let proj_velocity = norm_escape_dir * velocity.pos.dot(&norm_escape_dir);
+					//println!("ed: {:?} v: {:?}, pv: {:?}", escape_dir, velocity, proj_velocity);
+					velocity.pos -= proj_velocity;
+				}
+			}
+			else
+			{
+				solid.on_ground = false;
+			}
+		}
 
 		// Camera
 		if let Ok(position) = self.world.get::<&comps::Position>(self.player)

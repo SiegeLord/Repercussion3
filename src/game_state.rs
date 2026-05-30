@@ -52,22 +52,9 @@ impl Into<i32> for MaterialKind
 slhack::actions! {
 	Action
 	{
-		RotateViewLeft = [Some(controls::Input::MouseXNeg), None],
-		RotateViewRight = [Some(controls::Input::MouseXPos), None],
-		RotateViewUp = [Some(controls::Input::MouseYNeg), None],
-		RotateViewDown = [Some(controls::Input::MouseYPos), None],
-		RotateView = [Some(controls::Input::MouseButton(3)), None],
-		MoveViewLeft = [Some(controls::Input::Keyboard(KeyCode::A)), None],
-		MoveViewRight = [Some(controls::Input::Keyboard(KeyCode::D)), None],
-		MoveViewForward = [Some(controls::Input::Keyboard(KeyCode::W)), None],
-		MoveViewBackward = [Some(controls::Input::Keyboard(KeyCode::S)), None],
-		MoveViewUp = [Some(controls::Input::Keyboard(KeyCode::Space)), None],
-		MoveViewDown = [Some(controls::Input::Keyboard(KeyCode::LShift)), None],
-		ZoomIn = [Some(controls::Input::MouseZPos), None],
-		ZoomOut = [Some(controls::Input::MouseZNeg), None],
-		SelectSource = [Some(controls::Input::MouseButton(1)), None],
-		SelectTarget = [Some(controls::Input::MouseButton(2)), None],
-		SwitchPathStyle = [Some(controls::Input::Keyboard(KeyCode::Enter)), None],
+		MoveLeft = [Some(controls::Input::Keyboard(KeyCode::Left)), Some(controls::Input::JoystickNegAxis(JoystickStick::LeftThumb, 0))],
+		MoveRight = [Some(controls::Input::Keyboard(KeyCode::Right)), Some(controls::Input::JoystickNegAxis(JoystickStick::LeftThumb, 1))],
+		Jump = [Some(controls::Input::Keyboard(KeyCode::Space)), Some(controls::Input::JoystickButton(JoystickButton::X))],
 	}
 }
 

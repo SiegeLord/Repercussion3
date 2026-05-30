@@ -46,7 +46,7 @@ impl Tiles
 			for x in 0..width
 			{
 				let test_point = Point2::new(x, y).cast::<f32>();
-				if (test_point - center).norm() < 5.
+				if (test_point - center).norm() < 5. || y == 10
 				{
 					tiles[y as usize * width as usize + x as usize] = TileKind::Empty;
 				}
@@ -112,6 +112,7 @@ impl Tiles
 		self.get_tile_kind(pos) == TileKind::Rock
 	}
 
+	/// size is radius.
 	pub fn get_escape_dir(
 		&self, pos: Point2<f32>, size: f32, avoid_kind: TileKind,
 	) -> Option<Vector2<f32>>
