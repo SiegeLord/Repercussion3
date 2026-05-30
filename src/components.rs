@@ -62,6 +62,12 @@ impl Velocity
 			pos: Vector2::zeros(),
 		}
 	}
+
+	pub fn with_pos(mut self, pos: Vector2<f32>) -> Self
+	{
+		self.pos = pos;
+		self
+	}
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -82,22 +88,31 @@ impl Acceleration
 	}
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum SolidKind
+{
+	Player,
+	Demon,
+}
+
 #[derive(Debug, Copy, Clone)]
 pub struct Solid
 {
 	pub size: f32,
 	pub on_ground: bool,
 	pub last_on_ground: f64,
+	pub kind: SolidKind,
 }
 
 impl Solid
 {
-	pub fn new(size: f32) -> Self
+	pub fn new(size: f32, kind: SolidKind) -> Self
 	{
 		Self {
 			size: size,
 			on_ground: false,
 			last_on_ground: 0.,
+			kind: kind,
 		}
 	}
 }
@@ -109,6 +124,7 @@ pub struct Appearance
 	pub animation_state: sprite::AnimationState,
 	pub material: game_state::MaterialKind,
 	pub speed: f32,
+	pub animated: bool,
 }
 
 impl Appearance
@@ -120,9 +136,58 @@ impl Appearance
 			animation_state: sprite::AnimationState::new("Default"),
 			speed: 1.,
 			material: game_state::MaterialKind::Default,
+			animated: true,
 		}
+	}
+
+	pub fn with_animated(mut self, animated: bool) -> Self
+	{
+		self.animated = animated;
+		self
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct Gravity;
+
+#[derive(Debug, Clone)]
+pub struct DemonHolder
+{
+	pub demon: Option<hecs::Entity>,
+}
+
+impl DemonHolder
+{
+	pub fn new() -> Self
+	{
+		Self { demon: None }
+	}
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum DemonKind
+{
+	Demon1,
+}
+
+#[derive(Debug, Clone)]
+pub struct Drill
+{
+	pub want_left: bool,
+	pub want_right: bool,
+	pub want_up: bool,
+	pub want_down: bool,
+}
+
+impl Drill
+{
+	pub fn new() -> Self
+	{
+		Self {
+			want_left: false,
+			want_right: false,
+			want_up: false,
+			want_down: false,
+		}
+	}
+}

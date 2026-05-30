@@ -54,7 +54,12 @@ slhack::actions! {
 	{
 		MoveLeft = [Some(controls::Input::Keyboard(KeyCode::Left)), Some(controls::Input::JoystickNegAxis(JoystickStick::LeftThumb, 0))],
 		MoveRight = [Some(controls::Input::Keyboard(KeyCode::Right)), Some(controls::Input::JoystickNegAxis(JoystickStick::LeftThumb, 1))],
-		Jump = [Some(controls::Input::Keyboard(KeyCode::Space)), Some(controls::Input::JoystickButton(JoystickButton::X))],
+		Jump = [Some(controls::Input::Keyboard(KeyCode::Space)), Some(controls::Input::JoystickButton(JoystickButton::A))],
+		Pickup = [Some(controls::Input::Keyboard(KeyCode::LShift)), Some(controls::Input::JoystickButton(JoystickButton::B))],
+		DrillLeft = [Some(controls::Input::Keyboard(KeyCode::A)), Some(controls::Input::JoystickNegAxis(JoystickStick::DPad, 0))],
+		DrillRight = [Some(controls::Input::Keyboard(KeyCode::D)), Some(controls::Input::JoystickPosAxis(JoystickStick::DPad, 0))],
+		DrillUp = [Some(controls::Input::Keyboard(KeyCode::W)), Some(controls::Input::JoystickNegAxis(JoystickStick::DPad, 1))],
+		DrillDown = [Some(controls::Input::Keyboard(KeyCode::S)), Some(controls::Input::JoystickPosAxis(JoystickStick::DPad, 1))],
 	}
 }
 

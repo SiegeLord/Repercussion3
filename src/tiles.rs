@@ -7,22 +7,44 @@ use std::collections::HashMap;
 use std::path::Path;
 
 pub const TILE_SIZE: f32 = 32.;
+pub const TILE_MAX_HEALTH: f32 = 100.;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TileKind
 {
 	Empty,
-	Rock,
+	Rock
+	{
+		health: f32,
+	},
 }
 
 impl TileKind
 {
-	fn from_id(id: i32) -> Self
+	fn get_idx(&self) -> i32
 	{
-		match id
+		match self
 		{
-			0 => TileKind::Empty,
-			_ => TileKind::Rock,
+			TileKind::Empty => 0,
+			TileKind::Rock { health } =>
+			{
+				let num_tiles: i32 = 4;
+				let f = health / TILE_MAX_HEALTH;
+				1 + utils::clamp(
+					num_tiles - 1 - (f * num_tiles as f32 - 0.5).trunc() as i32,
+					0,
+					num_tiles - 1,
+				)
+			}
+		}
+	}
+
+	pub fn is_solid(&self) -> bool
+	{
+		match self
+		{
+			TileKind::Empty => false,
+			TileKind::Rock { .. } => true,
 		}
 	}
 }
@@ -38,7 +60,12 @@ impl Tiles
 {
 	pub fn new(width: i32, height: i32) -> Result<Self>
 	{
-		let mut tiles = vec![TileKind::Rock; (width * height) as usize];
+		let mut tiles = vec![
+			TileKind::Rock {
+				health: TILE_MAX_HEALTH
+			};
+			(width * height) as usize
+		];
 
 		let center = Point2::new(10., 10.);
 		for y in 0..height
@@ -71,11 +98,7 @@ impl Tiles
 			for x in 0..self.width
 			{
 				let tile_kind = self.tiles[y as usize * self.width as usize + x as usize];
-				if tile_kind == TileKind::Empty
-				{
-					continue;
-				}
-				let (atlas_bmp, offt) = sprite.get_frame("Default", tile_kind as i32);
+				let (atlas_bmp, offt) = sprite.get_frame("Default", tile_kind.get_idx());
 
 				let tile_pos = Vector2::new(x as f32 * TILE_SIZE, y as f32 * TILE_SIZE);
 				let pos = utils::round_point(pos + tile_pos) + offt;
@@ -96,25 +119,47 @@ impl Tiles
 		Ok(())
 	}
 
-	pub fn get_tile_kind(&self, pos: Point2<f32>) -> TileKind
+	fn get_tile_idx(&self, pos: Point2<f32>) -> Option<usize>
 	{
-		let tile_x = ((pos.x) / TILE_SIZE).floor() as i32;
-		let tile_y = ((pos.y) / TILE_SIZE).floor() as i32;
+		let tile_x = (pos.x / TILE_SIZE).floor() as i32;
+		let tile_y = (pos.y / TILE_SIZE).floor() as i32;
 		if tile_x < 0 || tile_x >= self.width || tile_y < 0 || tile_y >= self.height
 		{
-			return TileKind::Empty;
+			None
 		}
-		self.tiles[tile_y as usize * self.width as usize + tile_x as usize]
+		else
+		{
+			Some(tile_y as usize * self.width as usize + tile_x as usize)
+		}
 	}
 
-	pub fn tile_is_solid(&self, pos: Point2<f32>) -> bool
+	pub fn get_tile_kind(&self, pos: Point2<f32>) -> TileKind
 	{
-		self.get_tile_kind(pos) == TileKind::Rock
+		if let Some(idx) = self.get_tile_idx(pos)
+		{
+			self.tiles[idx]
+		}
+		else
+		{
+			TileKind::Empty
+		}
+	}
+
+	pub fn get_tile_kind_mut(&mut self, pos: Point2<f32>) -> Option<&mut TileKind>
+	{
+		if let Some(idx) = self.get_tile_idx(pos)
+		{
+			Some(&mut self.tiles[idx])
+		}
+		else
+		{
+			None
+		}
 	}
 
 	/// size is radius.
 	pub fn get_escape_dir(
-		&self, pos: Point2<f32>, size: f32, avoid_kind: TileKind,
+		&self, pos: Point2<f32>, size: f32, avoid_fn: impl Fn(TileKind) -> bool,
 	) -> Option<Vector2<f32>>
 	{
 		let tile_x = ((pos.x) / TILE_SIZE) as i32;
@@ -131,7 +176,7 @@ impl Tiles
 					continue;
 				}
 				let tile = self.tiles[(map_y * self.width + map_x) as usize];
-				if tile != avoid_kind
+				if !avoid_fn(tile)
 				{
 					continue;
 				}
@@ -139,12 +184,11 @@ impl Tiles
 				let cx = map_x as f32 * TILE_SIZE;
 				let cy = map_y as f32 * TILE_SIZE;
 
-				// TODO: This order might be wrong
 				let vs = [
 					Point2::new(cx, cy),
-					Point2::new(cx, cy + TILE_SIZE),
-					Point2::new(cx + TILE_SIZE, cy + TILE_SIZE),
 					Point2::new(cx + TILE_SIZE, cy),
+					Point2::new(cx + TILE_SIZE, cy + TILE_SIZE),
+					Point2::new(cx, cy + TILE_SIZE),
 				];
 
 				let nearest_point = utils::nearest_poly_point(&vs, pos);
