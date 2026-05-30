@@ -1,8 +1,9 @@
 use crate::error::{Result, ResultHelper};
 use crate::game_state::DT;
-use crate::{components as comps, game_state, ui, utils};
+use crate::{components as comps, draw_batch, game_state, tiles, ui, utils};
 use allegro::*;
 use allegro_font::*;
+use nalgebra::{Point2, Vector2};
 use rand::prelude::*;
 use slhack::{controls, scene, sprite, ui as slhack_ui};
 
@@ -118,9 +119,27 @@ impl Game
 	}
 }
 
+fn spawn_player(
+	pos: Point2<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
+) -> Result<hecs::Entity>
+{
+	let sprite_name = "data/player.cfg";
+	state.cache_sprite(sprite_name)?;
+
+	let entity = world.spawn((
+		comps::Position::new(pos),
+		comps::Appearance::new(sprite_name),
+	));
+
+	Ok(entity)
+}
+
 struct Map
 {
 	world: hecs::World,
+	tiles: tiles::Tiles,
+	camera_pos: comps::Position,
+	player: hecs::Entity,
 }
 
 impl Map
@@ -128,9 +147,16 @@ impl Map
 	fn new(state: &mut game_state::GameState) -> Result<Self>
 	{
 		let mut world = hecs::World::new();
+		state.cache_sprite("data/tiles.cfg")?;
+
+		let pos = Point2::new(tiles::TILE_SIZE * 10., tiles::TILE_SIZE * 10.);
+		let player = spawn_player(pos, &mut world, state)?;
 
 		Ok(Self {
 			world: world,
+			tiles: tiles::Tiles::new(16, 16)?,
+			camera_pos: comps::Position::new(Point2::origin()),
+			player: player,
 		})
 	}
 
@@ -144,6 +170,7 @@ impl Map
 		{
 			position.snapshot();
 		}
+		self.camera_pos.snapshot();
 
 		// Input.
 		//if state.controls.get_action_state(game_state::Action::Move) > 0.5
@@ -164,6 +191,22 @@ impl Map
 		//		position.snapshot();
 		//	}
 		//}
+
+		// Camera
+		if let Ok(position) = self.world.get::<&comps::Position>(self.player)
+		{
+			self.camera_pos.pos += 0.25 * (position.pos - self.camera_pos.pos);
+		}
+
+		// Appearance.
+		for (_, appearance) in self.world.query::<&mut comps::Appearance>().iter()
+		{
+			let sprite = state.get_sprite(&appearance.sprite)?;
+			sprite.advance_state(
+				&mut appearance.animation_state,
+				(appearance.speed * DT) as f64,
+			);
+		}
 
 		// Remove dead entities
 		to_die.sort();
@@ -187,7 +230,58 @@ impl Map
 	fn draw(&mut self, state: &mut game_state::GameState) -> Result<()>
 	{
 		let alpha = state.hs.alpha;
-		state.hs.core.clear_to_color(Color::from_rgb_f(0., 0.2, 0.));
+		state
+			.hs
+			.core
+			.clear_to_color(Color::from_rgb_f(0., 0., 0.05));
+
+		let mut batch = draw_batch::DrawBatch::new();
+
+		let camera_shift = self.camera_shift(alpha, state);
+
+		// Draw map.
+		self.tiles
+			.draw(Point2::origin() + camera_shift, &mut batch, state, false)?;
+
+		// Draw appearance.
+		for (_, (appearance, position)) in self
+			.world
+			.query_mut::<(&comps::Appearance, &comps::Position)>()
+		{
+			let sprite = state.get_sprite(&appearance.sprite)?;
+
+			let draw_pos = position.draw_pos(state.hs.alpha);
+			let pos = utils::round_point(draw_pos + camera_shift);
+
+			let (atlas_bmp, offt) = sprite.get_frame_from_state(&appearance.animation_state);
+
+			batch.add_bitmap(pos + offt, atlas_bmp, appearance.material);
+		}
+
+		state
+			.hs
+			.core
+			.use_shader(state.compose_shader.as_ref())
+			.unwrap();
+		batch.draw_triangles(state);
+
+		state
+			.hs
+			.core
+			.use_shader(state.basic_shader.as_ref())
+			.unwrap();
 		Ok(())
+	}
+
+	fn camera_to_world(&self, pos: Point2<f32>, state: &game_state::GameState) -> Point2<f32>
+	{
+		self.camera_pos.pos.xy() + pos.coords
+			- Vector2::new(state.hs.buffer_width() / 2., state.hs.buffer_height() / 2.)
+	}
+
+	fn camera_shift(&self, alpha: f32, state: &game_state::GameState) -> Vector2<f32>
+	{
+		-self.camera_pos.draw_pos(alpha).xy().coords
+			+ Vector2::new(state.hs.buffer_width() / 2., state.hs.buffer_height() / 2.)
 	}
 }

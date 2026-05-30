@@ -20,15 +20,25 @@ pub const DT: f32 = 1. / 60.;
 #[repr(i32)]
 pub enum MaterialKind
 {
-	Static = 0,
-	Dynamic = 1,
-	Fullbright = 2,
-	NumMaterials = 3,
+	Default = 0,
+	Lit = 1,
+	NumMaterials = 2,
 }
 
 pub fn shader_replacements() -> Vec<(&'static str, &'static str)>
 {
-	vec![]
+	let mut ret = vec![];
+	for i in 0..MaterialKind::NumMaterials as i32
+	{
+		let variant = unsafe { std::mem::transmute(i) };
+		ret.push(match variant
+		{
+			MaterialKind::Default => ("DEFAULT_MATERIAL", "0"),
+			MaterialKind::Lit => ("LIT_MATERIAL", "1"),
+			MaterialKind::NumMaterials => unreachable!(),
+		});
+	}
+	ret
 }
 
 impl Into<i32> for MaterialKind
@@ -82,8 +92,8 @@ impl Default for Options
 			version: VERSION.to_string(),
 			gfx: hack_state::GfxOptions {
 				fullscreen: false,
-				width: 960,
-				height: 864,
+				width: 640 * 3,
+				height: 360 * 3,
 				vsync_method: if cfg!(target_os = "windows") { 1 } else { 2 },
 				grab_mouse: false,
 				ui_scale: 1.,
@@ -117,6 +127,7 @@ pub struct GameState
 	pub controls: controls::ControlsHandler<Action>,
 
 	pub basic_shader: Option<Shader>,
+	pub compose_shader: Option<Shader>,
 
 	bitmaps: HashMap<String, Bitmap>,
 	sprites: HashMap<String, sprite::Sprite>,
@@ -166,7 +177,7 @@ impl GameState
 			Ok(options.gfx.clone())
 		};
 		let hack_state =
-			hack_state::HackState::new("Repercussion 3", hack_load_options, Some((640, 480)))?;
+			hack_state::HackState::new("Repercussion 3", hack_load_options, Some((640, 360)))?;
 
 		let sfx = sfx::Sfx::new(options.sfx_volume, options.music_volume, &hack_state.core)?;
 		//sfx.set_music_file("data/lemonade-sinus.xm");
@@ -181,6 +192,7 @@ impl GameState
 			atlas: atlas::Atlas::new(1024),
 			controls: controls,
 			basic_shader: None,
+			compose_shader: None,
 			hs: hack_state,
 		})
 	}

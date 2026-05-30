@@ -5,10 +5,12 @@
 #![allow(unpredictable_function_pointer_comparisons)]
 
 mod components;
+mod draw_batch;
 mod error;
 mod game;
 mod game_state;
 mod menu;
+mod tiles;
 mod ui;
 
 use crate::error::{Result, ResultHelper};
@@ -70,9 +72,15 @@ impl game_loop::LoopState for LoopState
 			"data/basic",
 			&replacements,
 		)?);
+		game_state.compose_shader = Some(utils::load_shader(
+			hs.display_mut(),
+			"data/compose",
+			&replacements,
+		)?);
 		game_state.resize_display().into_slhack()?;
 
-		self.cur_screen = Some(Screen::Menu(menu::Menu::new(game_state).into_slhack()?));
+		//self.cur_screen = Some(Screen::Menu(menu::Menu::new(game_state).into_slhack()?));
+		self.cur_screen = Some(Screen::Game(game::Game::new(game_state).into_slhack()?));
 		Ok(())
 	}
 
