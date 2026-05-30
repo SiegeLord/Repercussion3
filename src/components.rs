@@ -164,13 +164,17 @@ pub struct Gravity;
 pub struct DemonHolder
 {
 	pub demon: Option<hecs::Entity>,
+	pub want_pickup: bool,
 }
 
 impl DemonHolder
 {
 	pub fn new() -> Self
 	{
-		Self { demon: None }
+		Self {
+			demon: None,
+			want_pickup: false,
+		}
 	}
 }
 
@@ -213,6 +217,54 @@ impl Drill
 			want_right: false,
 			want_up: false,
 			want_down: false,
+		}
+	}
+}
+
+#[derive(Debug, Clone)]
+pub struct Mover
+{
+	pub want_move_left: f32,
+	pub want_move_right: f32,
+	pub want_jump: bool,
+}
+
+impl Mover
+{
+	pub fn new() -> Mover
+	{
+		Self {
+			want_move_left: 0.0,
+			want_move_right: 0.0,
+			want_jump: false,
+		}
+	}
+}
+
+#[derive(Debug, Clone)]
+pub enum AIState
+{
+	Idle,
+	Jump
+	{
+		dir: f32,
+	},
+}
+
+#[derive(Debug, Clone)]
+pub struct AI
+{
+	pub time_to_decide: f64,
+	pub state: AIState,
+}
+
+impl AI
+{
+	pub fn new() -> Self
+	{
+		Self {
+			time_to_decide: 0.,
+			state: AIState::Idle,
 		}
 	}
 }

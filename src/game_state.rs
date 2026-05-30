@@ -376,7 +376,7 @@ pub fn light_pass(state: &GameState) -> Option<&Bitmap>
 				.ok();
 			core.set_shader_uniform("last_index", &[(i == last_idx) as i32][..])
 				.ok();
-			core.set_shader_uniform("num_steps", &[32_i32][..]).ok();
+			core.set_shader_uniform("num_steps", &[16_i32][..]).ok();
 			core.draw_bitmap(state.light_buffer.as_ref().unwrap(), 0., 0., Flag::zero());
 		}
 		rc_buffer = buffers[1 - last_idx as usize % 2];

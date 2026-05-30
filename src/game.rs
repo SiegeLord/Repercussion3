@@ -141,6 +141,7 @@ fn spawn_player(
 		comps::DemonHolder::new(),
 		comps::Drill::new(),
 		comps::Light::new(Color::from_rgba(0, 0, 0, 6), 0.),
+		comps::Mover::new(),
 	));
 
 	Ok(entity)
@@ -161,7 +162,9 @@ fn spawn_demon(
 		comps::Appearance::new(sprite_name).with_animated(false),
 		comps::Solid::new(24., comps::SolidKind::Demon),
 		comps::Light::new(kind.get_color(), 0.),
+		comps::AI::new(),
 		comps::Gravity,
+		comps::Mover::new(),
 		kind,
 	));
 
@@ -258,6 +261,7 @@ impl Map
 	-> Result<Option<game_state::NextScreen>>
 	{
 		let mut to_die = vec![];
+		let mut rng = rand::thread_rng();
 
 		// Position snapshotting.
 		for (_, position) in self.world.query::<&mut comps::Position>().iter()
@@ -266,80 +270,138 @@ impl Map
 		}
 		self.camera_pos.snapshot();
 
-		// XXX: Why?
+		// Zero out acceleration for the frame.
+		// XXX: Acceleration kinda ends up acting as a frame accumulator. It's akin to how we zero
+		// out the forces in physics simulators. Is this actually okay?
 		for (_, acceleration) in self.world.query_mut::<&mut comps::Acceleration>()
 		{
 			acceleration.pos = Vector2::zeros();
 		}
 
-		let want_move_left = state
-			.controls
-			.get_action_state(game_state::Action::MoveLeft);
-		let want_move_right = state
-			.controls
-			.get_action_state(game_state::Action::MoveRight);
-		let want_jump = state.controls.get_action_state(game_state::Action::Jump) > 0.5;
-		let want_pickup = state.controls.get_action_state(game_state::Action::Pickup) > 0.5;
-		state
-			.controls
-			.clear_action_state(game_state::Action::Pickup);
-		let want_drill_left = state
-			.controls
-			.get_action_state(game_state::Action::DrillLeft)
-			> 0.5;
-		let want_drill_right = state
-			.controls
-			.get_action_state(game_state::Action::DrillRight)
-			> 0.5;
-		let want_drill_up = state.controls.get_action_state(game_state::Action::DrillUp) > 0.5;
-		let want_drill_down = state
-			.controls
-			.get_action_state(game_state::Action::DrillDown)
-			> 0.5;
-		let want_drill = want_drill_left || want_drill_right || want_drill_down || want_drill_up;
-
+		// Player input.
 		if self.world.contains(self.player)
 		{
-			let right_left = want_move_right - want_move_left;
-			if let Ok((solid, acceleration, velocity, drill)) = self.world.query_one_mut::<(
-				&comps::Solid,
-				&mut comps::Acceleration,
-				&mut comps::Velocity,
+			if let Ok((drill, mover, demon_holder)) = self.world.query_one_mut::<(
 				&mut comps::Drill,
+				&mut comps::Mover,
+				&mut comps::DemonHolder,
 			)>(self.player)
 			{
-				let control = if solid.on_ground { 1. } else { 0.5 };
-				let can_move = !want_drill;
+				mover.want_move_left = state
+					.controls
+					.get_action_state(game_state::Action::MoveLeft);
+				mover.want_move_right = state
+					.controls
+					.get_action_state(game_state::Action::MoveRight);
+				mover.want_jump = state.controls.get_action_state(game_state::Action::Jump) > 0.5;
 
-				if can_move
-				{
-					acceleration.pos.x = 256. * right_left * control;
-					if right_left.abs() > 1e-1
-					{
-						acceleration.last_change = acceleration.pos;
-					}
-					if want_jump && (state.hs.time() - solid.last_on_ground) < 0.2
-					{
-						velocity.pos.y -= 64.;
-						//println!("Jump: {}", velocity.pos.y);
-					}
-				}
+				drill.want_left = state
+					.controls
+					.get_action_state(game_state::Action::DrillLeft)
+					> 0.5;
+				drill.want_right = state
+					.controls
+					.get_action_state(game_state::Action::DrillRight)
+					> 0.5;
+				drill.want_up = state.controls.get_action_state(game_state::Action::DrillUp) > 0.5;
+				drill.want_down = state
+					.controls
+					.get_action_state(game_state::Action::DrillDown)
+					> 0.5;
 
-				drill.want_left = want_drill_left;
-				drill.want_right = want_drill_right;
-				drill.want_up = want_drill_up;
-				drill.want_down = want_drill_down;
+				demon_holder.want_pickup =
+					state.controls.get_action_state(game_state::Action::Pickup) > 0.5;
+				state
+					.controls
+					.clear_action_state(game_state::Action::Pickup);
 			}
 		}
 
-		// Input.
-		//if state.controls.get_action_state(game_state::Action::Move) > 0.5
-		//{
-		//	for (_, position) in self.world.query::<&mut comps::Position>().iter()
-		//	{
-		//		position.pos.y += 100. * DT;
-		//	}
-		//}
+		// AI.
+		for (_, (ai, mover)) in self
+			.world
+			.query::<(&mut comps::AI, &mut comps::Mover)>()
+			.iter()
+		{
+			let next_state_and_duration = if state.hs.time() > ai.time_to_decide
+			{
+				if rng.gen_bool(2. / 3.)
+				{
+					Some((comps::AIState::Idle, rng.gen_range(1.0..2.0)))
+				}
+				else
+				{
+					Some((
+						comps::AIState::Jump {
+							dir: *[-1., 1.].choose(&mut rng).unwrap() as f32,
+						},
+						0.5,
+					))
+				}
+			}
+			else
+			{
+				None
+			};
+
+			if let Some((next_state, duration)) = next_state_and_duration
+			{
+				ai.state = next_state;
+				ai.time_to_decide = state.hs.time() + duration;
+			}
+
+			match ai.state
+			{
+				comps::AIState::Idle =>
+				{
+					mover.want_jump = false;
+					mover.want_move_left = 0.;
+					mover.want_move_right = 0.;
+				}
+				comps::AIState::Jump { dir } =>
+				{
+					mover.want_jump = true;
+					mover.want_move_left = -dir.min(0.);
+					mover.want_move_right = dir.max(0.);
+				}
+			}
+		}
+
+		// Mover.
+		for (id, (velocity, acceleration, solid, mover)) in self
+			.world
+			.query::<(
+				&mut comps::Velocity,
+				&mut comps::Acceleration,
+				&comps::Solid,
+				&comps::Mover,
+			)>()
+			.iter()
+		{
+			let right_left = mover.want_move_right - mover.want_move_left;
+			let want_drill = self
+				.world
+				.get::<&comps::Drill>(id)
+				.map(|drill| {
+					drill.want_left || drill.want_right || drill.want_down || drill.want_up
+				})
+				.unwrap_or(false);
+			let control = if solid.on_ground { 1. } else { 0.5 };
+			let can_move = !want_drill;
+			if can_move
+			{
+				acceleration.pos.x = 256. * right_left * control;
+				if right_left.abs() > 1e-1
+				{
+					acceleration.last_change = acceleration.pos;
+				}
+				if mover.want_jump && (state.hs.time() - solid.last_on_ground) < 0.2
+				{
+					velocity.pos.y -= 64.;
+					//println!("Jump: {}", velocity.pos.y);
+				}
+			}
+		}
 
 		// Friction.
 		for (_, (velocity, acceleration, solid)) in self
@@ -478,18 +540,18 @@ impl Map
 		// XXX: Weird how this happens after all the other stuff...
 		if self.world.contains(self.player)
 		{
-			if want_pickup
+			let r = PICKUP_RADIUS;
+			let mut do_spawn_demon = None;
+			let mut pickup_demon = None;
+			if let Ok((position, velocity, acceleration, demon_holder)) =
+				self.world.query_one_mut::<(
+					&mut comps::Position,
+					&comps::Velocity,
+					&comps::Acceleration,
+					&mut comps::DemonHolder,
+				)>(self.player)
 			{
-				let r = PICKUP_RADIUS;
-				let mut do_spawn_demon = None;
-				let mut pickup_demon = None;
-				if let Ok((position, velocity, acceleration, demon_holder)) =
-					self.world.query_one_mut::<(
-						&mut comps::Position,
-						&comps::Velocity,
-						&comps::Acceleration,
-						&mut comps::DemonHolder,
-					)>(self.player)
+				if demon_holder.want_pickup
 				{
 					let diff = Vector2::new(r, r);
 					let pos = position.pos;
@@ -528,32 +590,32 @@ impl Map
 						));
 					}
 				}
-				if let Some((pickup_demon_id, item_pos)) = pickup_demon
-				{
-					let demon_kind = *self
-						.world
-						.get::<&comps::DemonKind>(pickup_demon_id)
-						.unwrap();
-					let item = spawn_demon_item(demon_kind, item_pos, &mut self.world, state)?;
-					let mut demon_holder = self
-						.world
-						.get::<&mut comps::DemonHolder>(self.player)
-						.unwrap();
-					demon_holder.demon = Some(item);
-					to_die.push(pickup_demon_id);
-				}
-				if let Some((demon_item_id, pos, pos_vel, sign)) = do_spawn_demon
-				{
-					let demon_kind = *self.world.get::<&comps::DemonKind>(demon_item_id).unwrap();
-					spawn_demon(
-						demon_kind,
-						pos + Vector2::new(r * sign, -8.),
-						pos_vel + Vector2::new(64. * sign, -64.),
-						&mut self.world,
-						state,
-					)?;
-					to_die.push(demon_item_id);
-				}
+			}
+			if let Some((pickup_demon_id, item_pos)) = pickup_demon
+			{
+				let demon_kind = *self
+					.world
+					.get::<&comps::DemonKind>(pickup_demon_id)
+					.unwrap();
+				let item = spawn_demon_item(demon_kind, item_pos, &mut self.world, state)?;
+				let mut demon_holder = self
+					.world
+					.get::<&mut comps::DemonHolder>(self.player)
+					.unwrap();
+				demon_holder.demon = Some(item);
+				to_die.push(pickup_demon_id);
+			}
+			if let Some((demon_item_id, pos, pos_vel, sign)) = do_spawn_demon
+			{
+				let demon_kind = *self.world.get::<&comps::DemonKind>(demon_item_id).unwrap();
+				spawn_demon(
+					demon_kind,
+					pos + Vector2::new(r * sign, -8.),
+					pos_vel + Vector2::new(64. * sign, -64.),
+					&mut self.world,
+					state,
+				)?;
+				to_die.push(demon_item_id);
 			}
 		}
 
@@ -662,7 +724,7 @@ impl Map
 		}
 
 		// Appearance animation state handling.
-		for (id, (appearance, position, acceleration, velocity)) in self
+		for (id, (appearance, _position, acceleration, velocity)) in self
 			.world
 			.query::<(
 				&mut comps::Appearance,
@@ -772,18 +834,6 @@ impl Map
 		let camera_shift = self.camera_shift(alpha, state);
 
 		state.hs.core.set_target_bitmap(state.light_buffer.as_ref());
-		let ortho_mat = Matrix4::new_orthographic(
-			0.,
-			state.hs.buffer_width() as f32,
-			state.hs.buffer_height() as f32,
-			0.,
-			state.hs.buffer_height(),
-			-state.hs.buffer_height(),
-		);
-		//state
-		//	.hs
-		//	.core
-		//	.use_projection_transform(&utils::mat4_to_transform(ortho_mat));
 		state
 			.hs
 			.core
@@ -832,7 +882,6 @@ impl Map
 			let idx = vertices.len() as i32;
 			indices.extend([idx + 0, idx + 1, idx + 3, idx + 1, idx + 2, idx + 3]);
 
-			let (r, g, b) = light.color.to_rgb_f();
 			for offt in offts
 			{
 				vertices.push(Vertex {
