@@ -10,6 +10,8 @@ use slhack::{controls, scene, sprite, ui as slhack_ui};
 use std::collections::HashMap;
 use std::f32::consts::PI;
 
+const MAX_SPEED: f32 = 150.0;
+
 pub struct Game
 {
 	map: Map,
@@ -138,6 +140,11 @@ fn spawn_player(
 	Ok(entity)
 }
 
+fn dir_name(vx: f32) -> &'static str
+{
+	if vx > 0. { "Right" } else { "Left" }
+}
+
 struct Map
 {
 	world: hecs::World,
@@ -195,6 +202,10 @@ impl Map
 			{
 				let control = if solid.on_ground { 1. } else { 0.5 };
 				acceleration.pos.x = 256. * right_left * control;
+				if right_left.abs() > 1e-1
+				{
+					acceleration.last_change = acceleration.pos;
+				}
 				if want_jump && (state.hs.time() - solid.last_on_ground) < 0.2
 				{
 					velocity.pos.y -= 64.;
@@ -252,14 +263,13 @@ impl Map
 			.iter()
 		{
 			velocity.pos += acceleration.pos * DT;
-			let max_speed = 150.;
-			if velocity.pos.x.abs() > max_speed
+			if velocity.pos.x.abs() > MAX_SPEED
 			{
-				velocity.pos.x = velocity.pos.x * max_speed / velocity.pos.x.abs();
+				velocity.pos.x = velocity.pos.x * MAX_SPEED / velocity.pos.x.abs();
 			}
-			if velocity.pos.y.abs() > max_speed
+			if velocity.pos.y.abs() > MAX_SPEED
 			{
-				velocity.pos.y = velocity.pos.y * max_speed / velocity.pos.y.abs();
+				velocity.pos.y = velocity.pos.y * MAX_SPEED / velocity.pos.y.abs();
 			}
 		}
 
@@ -322,6 +332,33 @@ impl Map
 				&mut appearance.animation_state,
 				(appearance.speed * DT) as f64,
 			);
+		}
+
+		// Appearance animation state handling.
+		for (_, (appearance, position, acceleration, velocity)) in self
+			.world
+			.query::<(
+				&mut comps::Appearance,
+				&comps::Position,
+				&comps::Acceleration,
+				&comps::Velocity,
+			)>()
+			.iter()
+		{
+			if acceleration.pos.x.abs() > 1e-1
+			{
+				appearance
+					.animation_state
+					.set_new_animation(format!("Move{}", dir_name(acceleration.last_change.x)));
+				appearance.speed = velocity.pos.x.abs() / MAX_SPEED;
+			}
+			else
+			{
+				appearance
+					.animation_state
+					.set_new_animation(format!("Stand{}", dir_name(acceleration.last_change.x)));
+				appearance.speed = 1.;
+			}
 		}
 
 		// Remove dead entities

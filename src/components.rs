@@ -68,6 +68,7 @@ impl Velocity
 pub struct Acceleration
 {
 	pub pos: Vector2<f32>,
+	pub last_change: Vector2<f32>,
 }
 
 impl Acceleration
@@ -76,6 +77,7 @@ impl Acceleration
 	{
 		Self {
 			pos: Vector2::zeros(),
+			last_change: Vector2::zeros(),
 		}
 	}
 }
