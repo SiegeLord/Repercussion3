@@ -77,6 +77,26 @@ impl game_loop::LoopState for LoopState
 			"data/compose",
 			&replacements,
 		)?);
+		game_state.jfa_seed_shader = Some(utils::load_shader(
+			hs.display_mut(),
+			"data/seed",
+			&replacements,
+		)?);
+		game_state.jfa_jump_shader = Some(utils::load_shader(
+			hs.display_mut(),
+			"data/jump",
+			&replacements,
+		)?);
+		game_state.jfa_dist_shader = Some(utils::load_shader(
+			hs.display_mut(),
+			"data/dist",
+			&replacements,
+		)?);
+		game_state.ray_casting_shader = Some(utils::load_shader(
+			hs.display_mut(),
+			"data/ray_casting",
+			&replacements,
+		)?);
 		game_state.resize_display().into_slhack()?;
 
 		//self.cur_screen = Some(Screen::Menu(menu::Menu::new(game_state).into_slhack()?));
@@ -162,7 +182,7 @@ fn real_main() -> Result<()>
 	let mut state = LoopState::new()?;
 
 	let mut options = game_loop::Options::new();
-	options.depth_buffer = true;
+	options.depth_buffer = false;
 	options.dt = game_state::DT as f64;
 	game_loop::game_loop(&mut state, options)?;
 

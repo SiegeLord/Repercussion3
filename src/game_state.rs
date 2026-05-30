@@ -5,7 +5,7 @@ use allegro_font::*;
 use allegro_image::*;
 use allegro_primitives::*;
 use allegro_ttf::*;
-use nalgebra::Point2;
+use nalgebra::{Point2, Vector2};
 use serde_derive::{Deserialize, Serialize};
 use slhack::hack_state::HackState;
 use slhack::{atlas, controls, deferred, hack_state, scene, sfx, sprite};
@@ -118,8 +118,19 @@ pub struct GameState
 	pub options: Options,
 	pub controls: controls::ControlsHandler<Action>,
 
+	pub light_buffer: Option<Bitmap>,
+	pub ray_casting_buffer_1: Option<Bitmap>,
+	pub ray_casting_buffer_2: Option<Bitmap>,
+	pub distance_buffer_1: Option<Bitmap>,
+	pub distance_buffer_2: Option<Bitmap>,
+	pub distance_buffer_fin: Option<Bitmap>,
+
 	pub basic_shader: Option<Shader>,
 	pub compose_shader: Option<Shader>,
+	pub jfa_seed_shader: Option<Shader>,
+	pub jfa_jump_shader: Option<Shader>,
+	pub jfa_dist_shader: Option<Shader>,
+	pub ray_casting_shader: Option<Shader>,
 
 	bitmaps: HashMap<String, Bitmap>,
 	sprites: HashMap<String, sprite::Sprite>,
@@ -185,15 +196,49 @@ impl GameState
 			controls: controls,
 			basic_shader: None,
 			compose_shader: None,
+			jfa_seed_shader: None,
+			jfa_jump_shader: None,
+			jfa_dist_shader: None,
+			ray_casting_shader: None,
+			light_buffer: None,
+			ray_casting_buffer_1: None,
+			ray_casting_buffer_2: None,
+			distance_buffer_1: None,
+			distance_buffer_2: None,
+			distance_buffer_fin: None,
 			hs: hack_state,
 		})
 	}
 
 	pub fn resize_display(&mut self) -> Result<()>
 	{
-		Ok(self
-			.hs
-			.resize_display("data/Energon.ttf", -16.0, &self.options.gfx)?)
+		self.hs
+			.resize_display("data/Energon.ttf", -16.0, &self.options.gfx)?;
+
+		let buffer_width = self.hs.buffer_width() as i32;
+		let buffer_height = self.hs.buffer_height() as i32;
+
+		let old_flags = self.hs.core.get_new_bitmap_flags();
+		self.hs.core.set_new_bitmap_flags(MAG_LINEAR | MIN_LINEAR);
+		self.light_buffer = Some(Bitmap::new(&self.hs.core, buffer_width, buffer_height).unwrap());
+		self.ray_casting_buffer_1 =
+			Some(Bitmap::new(&self.hs.core, buffer_width, buffer_height).unwrap());
+		self.ray_casting_buffer_2 =
+			Some(Bitmap::new(&self.hs.core, buffer_width, buffer_height).unwrap());
+		self.hs.core.set_new_bitmap_flags(old_flags);
+
+		let old_format = self.hs.core.get_new_bitmap_format();
+		self.hs.core.set_new_bitmap_format(PixelFormat::AbgrF32);
+		self.distance_buffer_1 =
+			Some(Bitmap::new(&self.hs.core, buffer_width, buffer_height).unwrap());
+		self.distance_buffer_2 =
+			Some(Bitmap::new(&self.hs.core, buffer_width, buffer_height).unwrap());
+		self.hs.core.set_new_bitmap_format(old_format);
+
+		self.distance_buffer_fin =
+			Some(Bitmap::new(&self.hs.core, buffer_width, buffer_height).unwrap());
+
+		Ok(())
 	}
 
 	pub fn cache_bitmap<'l>(&'l mut self, name: &str) -> Result<&'l Bitmap>
@@ -232,4 +277,133 @@ impl GameState
 			.get(name)
 			.ok_or_else(|| format!("{name} is not cached!"))?)
 	}
+}
+
+pub fn light_pass(state: &GameState) -> Option<&Bitmap>
+{
+	let core = &state.hs.core;
+
+	core.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::Zero);
+	// Seed distance buffer
+	core.set_target_bitmap(state.distance_buffer_1.as_ref());
+	core.use_shader(state.basic_shader.as_ref()).unwrap();
+	state
+		.hs
+		.core
+		.clear_to_color(Color::from_rgb_f(0.0, 0.0, 0.0));
+
+	let buffer_size = Vector2::new(state.hs.buffer_width(), state.hs.buffer_height());
+	core.use_shader(state.jfa_seed_shader.as_ref()).unwrap();
+	core.set_shader_uniform("bitmap_size", &[[buffer_size.x, buffer_size.y]][..])
+		.ok();
+	core.draw_bitmap(state.light_buffer.as_ref().unwrap(), 0., 0., Flag::zero());
+
+	// JFA
+	let num_passes = utils::max(buffer_size.x, buffer_size.y).log2().ceil() as i32;
+	let buffers = [
+		state.distance_buffer_1.as_ref(),
+		state.distance_buffer_2.as_ref(),
+	];
+	for i in 0..num_passes
+	{
+		let src_buffer = buffers[(i % 2) as usize];
+		let dst_buffer = buffers[(1 - i % 2) as usize];
+		core.set_target_bitmap(dst_buffer);
+		core.use_shader(state.jfa_jump_shader.as_ref()).unwrap();
+		core.set_shader_uniform("bitmap_size", &[[buffer_size.x, buffer_size.y]][..])
+			.ok();
+		core.set_shader_uniform(
+			"uv_offset",
+			&[2.0_f32.powf((num_passes - i - 1) as f32)][..],
+		)
+		.ok();
+		core.draw_bitmap(src_buffer.unwrap(), 0., 0., Flag::zero());
+	}
+	let src_buffer = buffers[(num_passes % 2) as usize];
+	core.set_target_bitmap(state.distance_buffer_fin.as_ref());
+	core.use_shader(state.jfa_dist_shader.as_ref()).unwrap();
+	core.draw_bitmap(src_buffer.unwrap(), 0., 0., Flag::zero());
+
+	// Ray casting.
+	let rc_buffer;
+	if false
+	{
+		core.set_target_bitmap(state.ray_casting_buffer_1.as_ref());
+		core.use_shader(state.ray_casting_shader.as_ref()).unwrap();
+		core.set_shader_uniform("num_rays", &[128][..]).unwrap();
+		core.set_shader_uniform("num_steps", &[32][..]).unwrap();
+		core.set_shader_sampler(
+			"distance_map",
+			state.distance_buffer_fin.as_ref().unwrap(),
+			2,
+		)
+		.ok();
+		core.draw_bitmap(state.light_buffer.as_ref().unwrap(), 0., 0., Flag::zero());
+		rc_buffer = state.ray_casting_buffer_1.as_ref();
+	}
+	else
+	{
+		let buffers = [
+			state.ray_casting_buffer_1.as_ref(),
+			state.ray_casting_buffer_2.as_ref(),
+		];
+		let diag = buffer_size.norm();
+		let base = 4.0_f32;
+		let num_cascades = (diag.ln() / base.ln()).ceil() + 1.;
+
+		let last_idx = 0;
+		for i in (last_idx..=num_cascades as i32 - 1).rev()
+		{
+			let src_buffer = buffers[(i % 2) as usize];
+			let dst_buffer = buffers[(1 - i % 2) as usize];
+			core.set_target_bitmap(dst_buffer);
+			core.use_shader(state.ray_casting_shader.as_ref()).unwrap();
+			core.set_shader_sampler(
+				"distance_map",
+				state.distance_buffer_fin.as_ref().unwrap(),
+				2,
+			)
+			.ok();
+			core.set_shader_sampler("prev_cascade", src_buffer.unwrap(), 3)
+				.ok();
+			core.set_shader_uniform("base", &[base][..]).ok();
+			core.set_shader_uniform("bitmap_size", &[[buffer_size.x, buffer_size.y]][..])
+				.ok();
+			core.set_shader_uniform("cascade_index", &[i as f32][..])
+				.ok();
+			core.set_shader_uniform("num_cascades", &[num_cascades as f32][..])
+				.ok();
+			core.set_shader_uniform("last_index", &[(i == last_idx) as i32][..])
+				.ok();
+			core.set_shader_uniform("num_steps", &[16_i32][..]).ok();
+			core.draw_bitmap(state.light_buffer.as_ref().unwrap(), 0., 0., Flag::zero());
+		}
+		rc_buffer = buffers[1 - last_idx as usize % 2];
+	}
+
+	// Debug
+	//state.hs.core.set_target_bitmap(state.hs.buffer1.as_ref());
+	//state
+	//	.hs
+	//	.core
+	//	.use_shader(Some(&*state.basic_shader.as_ref().unwrap()))
+	//	.unwrap();
+	//state
+	//	.hs
+	//	.core
+	//	.clear_to_color(Color::from_rgb_f(0.0, 0.0, 0.1));
+	//state
+	//	.hs
+	//	.core
+	//	.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::InverseAlpha);
+	//state.hs.core.draw_bitmap(
+	//	//buffers[num_passes as usize % 2].unwrap(),
+	//	//state.light_buffer.as_ref().unwrap(),
+	//	//state.distance_buffer_fin.as_ref().unwrap(),
+	//	rc_buffer.unwrap(),
+	//	0.,
+	//	0.,
+	//	Flag::zero(),
+	//);
+	rc_buffer
 }

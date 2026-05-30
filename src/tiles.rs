@@ -88,11 +88,11 @@ impl Tiles
 	}
 
 	pub fn draw(
-		&self, pos: Point2<f32>, batch: &mut draw_batch::DrawBatch, state: &game_state::GameState,
-		lit: bool,
+		&self, sprite: &str, pos: Point2<f32>, batch: &mut draw_batch::DrawBatch,
+		state: &game_state::GameState, lit: bool,
 	) -> Result<()>
 	{
-		let sprite = state.get_sprite("data/tiles.cfg")?;
+		let sprite = state.get_sprite(sprite)?;
 		for y in 0..self.height
 		{
 			for x in 0..self.width

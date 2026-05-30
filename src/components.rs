@@ -9,8 +9,18 @@ use slhack::sprite;
 pub struct Light
 {
 	pub color: Color,
-	pub intensity: f32,
-	pub static_: bool,
+	pub y_offt: f32,
+}
+
+impl Light
+{
+	pub fn new(color: Color, y_offt: f32) -> Self
+	{
+		Self {
+			color: color,
+			y_offt: y_offt,
+		}
+	}
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -168,6 +178,19 @@ impl DemonHolder
 pub enum DemonKind
 {
 	Demon1,
+	Demon2,
+}
+
+impl DemonKind
+{
+	pub fn get_color(&self) -> Color
+	{
+		match self
+		{
+			DemonKind::Demon1 => Color::from_rgb_f(1., 1., 0.),
+			DemonKind::Demon2 => Color::from_rgb_f(0., 1., 1.),
+		}
+	}
 }
 
 #[derive(Debug, Clone)]

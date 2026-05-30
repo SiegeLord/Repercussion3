@@ -3,7 +3,8 @@ use crate::game_state::DT;
 use crate::{components as comps, draw_batch, game_state, tiles, ui, utils};
 use allegro::*;
 use allegro_font::*;
-use nalgebra::{Point2, Vector2};
+use allegro_primitives::*;
+use nalgebra::{Matrix4, Point2, Vector2};
 use rand::prelude::*;
 use slhack::{controls, scene, spatial_grid, sprite, ui as slhack_ui};
 
@@ -12,7 +13,7 @@ use std::f32::consts::PI;
 
 const MAX_SPEED: f32 = 150.0;
 const PICKUP_RADIUS: f32 = 16.0;
-const DRILL_RADIUS: f32 = 24.0;
+const DRILL_RADIUS: f32 = 18.0;
 
 pub struct Game
 {
@@ -139,6 +140,7 @@ fn spawn_player(
 		comps::Gravity,
 		comps::DemonHolder::new(),
 		comps::Drill::new(),
+		comps::Light::new(Color::from_rgb_f(0.01, 0.01, 0.01), 0.),
 	));
 
 	Ok(entity)
@@ -158,6 +160,7 @@ fn spawn_demon(
 		comps::Velocity::new().with_pos(pos_vel),
 		comps::Appearance::new(sprite_name).with_animated(false),
 		comps::Solid::new(24., comps::SolidKind::Demon),
+		comps::Light::new(kind.get_color(), 0.),
 		comps::Gravity,
 		kind,
 	));
@@ -176,6 +179,7 @@ fn spawn_demon_item(
 	let entity = world.spawn((
 		comps::Position::new(pos),
 		comps::Appearance::new(sprite_name).with_animated(false),
+		comps::Light::new(kind.get_color(), 0.),
 		kind,
 	));
 
@@ -209,6 +213,8 @@ impl Map
 	{
 		let mut world = hecs::World::new();
 		state.cache_sprite("data/tiles.cfg")?;
+		state.cache_sprite("data/shadow_tiles.cfg")?;
+		state.cache_bitmap("data/circle.png")?;
 
 		let pos = Point2::new(tiles::TILE_SIZE * 10., tiles::TILE_SIZE * 10.);
 		let player = spawn_player(pos, &mut world, state)?;
@@ -221,6 +227,16 @@ impl Map
 			&mut world,
 			state,
 		)?;
+
+		let pos = Point2::new(tiles::TILE_SIZE * 8., tiles::TILE_SIZE * 10.);
+		spawn_demon(
+			comps::DemonKind::Demon2,
+			pos,
+			Vector2::zeros(),
+			&mut world,
+			state,
+		)?;
+
 		Ok(Self {
 			world: world,
 			tiles: tiles::Tiles::new(16, 16)?,
@@ -743,18 +759,104 @@ impl Map
 	fn draw(&mut self, state: &mut game_state::GameState) -> Result<()>
 	{
 		let alpha = state.hs.alpha;
-		state
-			.hs
-			.core
-			.clear_to_color(Color::from_rgb_f(0., 0., 0.05));
-
-		let mut batch = draw_batch::DrawBatch::new();
 
 		let camera_shift = self.camera_shift(alpha, state);
 
+		state.hs.core.set_target_bitmap(state.light_buffer.as_ref());
+		let ortho_mat = Matrix4::new_orthographic(
+			0.,
+			state.hs.buffer_width() as f32,
+			state.hs.buffer_height() as f32,
+			0.,
+			state.hs.buffer_height(),
+			-state.hs.buffer_height(),
+		);
+		//state
+		//	.hs
+		//	.core
+		//	.use_projection_transform(&utils::mat4_to_transform(ortho_mat));
+		state
+			.hs
+			.core
+			.use_shader(state.basic_shader.as_ref())
+			.unwrap();
+		state
+			.hs
+			.core
+			.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::Zero);
+		state
+			.hs
+			.core
+			.clear_to_color(Color::from_rgba_f(0.0, 0.0, 0.0, 0.));
+		state
+			.hs
+			.core
+			.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::InverseAlpha);
+
+		let mut batch = draw_batch::DrawBatch::new();
+		self.tiles.draw(
+			"data/shadow_tiles.cfg",
+			Point2::origin() + camera_shift,
+			&mut batch,
+			state,
+			false,
+		)?;
+		batch.draw_triangles(state);
+
+		let mut vertices = vec![];
+		let mut indices = vec![];
+		for (_, (position, light)) in self.world.query_mut::<(&comps::Position, &comps::Light)>()
+		{
+			let draw_pos = position.draw_pos(state.hs.alpha);
+			let pos = utils::round_point(
+				Point2::new(draw_pos.x, draw_pos.y - light.y_offt) + camera_shift,
+			);
+
+			let rad = 16.;
+			let offts = [
+				Point2::new(-rad, -rad),
+				Point2::new(rad, -rad),
+				Point2::new(rad, rad),
+				Point2::new(-rad, rad),
+			];
+
+			let idx = vertices.len() as i32;
+			indices.extend([idx + 0, idx + 1, idx + 3, idx + 1, idx + 2, idx + 3]);
+
+			let (r, g, b) = light.color.to_rgb_f();
+			for offt in offts
+			{
+				vertices.push(Vertex {
+					x: pos.x + offt.x,
+					y: pos.y + offt.y,
+					z: 0.,
+					u: (offt.x + rad) / (2. * rad),
+					v: (offt.y + rad) / (2. * rad),
+					color: Color::from_rgb_f(r, g, b),
+				});
+			}
+		}
+		state.hs.prim.draw_indexed_prim(
+			&vertices[..],
+			Some(state.get_bitmap("data/circle.png").unwrap()),
+			&indices[..],
+			0,
+			indices.len() as u32,
+			PrimType::TriangleList,
+		);
+		//state.hs.core.draw_bitmap(state.get_bitmap("data/circle.png").unwrap(), 50., 50., Flag::zero());
+
+		let rc_buffer = game_state::light_pass(state);
+
 		// Draw map.
-		self.tiles
-			.draw(Point2::origin() + camera_shift, &mut batch, state, false)?;
+		let mut batch = draw_batch::DrawBatch::new();
+		self.tiles.draw(
+			"data/tiles.cfg",
+			Point2::origin() + camera_shift,
+			&mut batch,
+			state,
+			true,
+		)?;
 
 		// Draw appearance.
 		for (_, (appearance, position)) in self
@@ -771,11 +873,26 @@ impl Map
 			batch.add_bitmap(pos + offt, atlas_bmp, appearance.material);
 		}
 
+		state.hs.core.set_target_bitmap(state.hs.buffer1.as_ref());
 		state
 			.hs
 			.core
 			.use_shader(state.compose_shader.as_ref())
 			.unwrap();
+		state
+			.hs
+			.core
+			.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::InverseAlpha);
+		state
+			.hs
+			.core
+			.clear_to_color(Color::from_rgb_f(0., 0., 0.05));
+		state
+			.hs
+			.core
+			.set_shader_sampler("light", rc_buffer.unwrap(), 1)
+			.unwrap();
+		//.set_shader_sampler("light", state.light_buffer.as_ref().unwrap(), 1).ok();
 		batch.draw_triangles(state);
 
 		state
