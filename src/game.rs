@@ -1091,7 +1091,11 @@ impl Map
 	{
 		let alpha = state.hs.alpha;
 
-		let camera_shift = self.camera_shift(alpha, state);
+		let camera_shift = self.camera_shift(alpha, state)
+			+ Vector2::new(
+				state.light_buffer.as_ref().unwrap().get_width() as f32 / 2.,
+				state.light_buffer.as_ref().unwrap().get_height() as f32 / 2.,
+			);
 
 		state.hs.core.set_target_bitmap(state.light_buffer.as_ref());
 		state
@@ -1167,6 +1171,9 @@ impl Map
 		let rc_buffer = game_state::light_pass(state);
 		//return Ok(());
 
+		let camera_shift = self.camera_shift(alpha, state)
+			+ Vector2::new(state.hs.buffer_width() / 2., state.hs.buffer_height() / 2.);
+
 		// Draw map.
 		let mut batch = draw_batch::DrawBatch::new();
 		self.tiles.draw(
@@ -1212,6 +1219,33 @@ impl Map
 			.set_shader_sampler("light", rc_buffer.unwrap(), 1)
 			.unwrap();
 		//.set_shader_sampler("light", state.light_buffer.as_ref().unwrap(), 1).ok();
+		state
+			.hs
+			.core
+			.set_shader_uniform(
+				"light_uv_scale",
+				&[[
+					state.hs.buffer_width() / (state.hs.buffer_width() + game_state::RC_PAD as f32),
+					state.hs.buffer_height()
+						/ (state.hs.buffer_height() + game_state::RC_PAD as f32),
+				]][..],
+			)
+			.unwrap();
+		state
+			.hs
+			.core
+			.set_shader_uniform(
+				"light_uv_shift",
+				&[[
+					0.,
+					0.,
+					// game_state::RC_PAD as f32 / 2.
+					// 	/ (state.hs.buffer_width() + game_state::RC_PAD as f32),
+					// game_state::RC_PAD as f32 / 2.
+					// 	/ (state.hs.buffer_height() + game_state::RC_PAD as f32),
+				]][..],
+			)
+			.unwrap();
 		batch.draw_triangles(state);
 
 		state
@@ -1235,6 +1269,5 @@ impl Map
 	fn camera_shift(&self, alpha: f32, state: &game_state::GameState) -> Vector2<f32>
 	{
 		-self.camera_pos.draw_pos(alpha).xy().coords
-			+ Vector2::new(state.hs.buffer_width() / 2., state.hs.buffer_height() / 2.)
 	}
 }

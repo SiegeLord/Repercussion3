@@ -15,6 +15,7 @@ use std::{fmt, path, sync};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const DT: f32 = 1. / 60.;
+pub const RC_PAD: i32 = 96;
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 #[repr(i32)]
@@ -219,8 +220,8 @@ impl GameState
 		self.hs
 			.resize_display("data/Energon.ttf", -16.0, &self.options.gfx)?;
 
-		let buffer_width = self.hs.buffer_width() as i32;
-		let buffer_height = self.hs.buffer_height() as i32;
+		let buffer_width = self.hs.buffer_width() as i32 + RC_PAD;
+		let buffer_height = self.hs.buffer_height() as i32 + RC_PAD;
 
 		let old_flags = self.hs.core.get_new_bitmap_flags();
 		self.hs.core.set_new_bitmap_flags(MAG_LINEAR | MIN_LINEAR);
@@ -296,7 +297,10 @@ pub fn light_pass(state: &GameState) -> Option<&Bitmap>
 		.core
 		.clear_to_color(Color::from_rgb_f(0.0, 0.0, 0.0));
 
-	let buffer_size = Vector2::new(state.hs.buffer_width(), state.hs.buffer_height());
+	let buffer_size = Vector2::new(
+		state.hs.buffer_width() + RC_PAD as f32,
+		state.hs.buffer_height() + RC_PAD as f32,
+	);
 	core.use_shader(state.jfa_seed_shader.as_ref()).unwrap();
 	core.set_shader_uniform("bitmap_size", &[[buffer_size.x, buffer_size.y]][..])
 		.ok();
@@ -387,7 +391,7 @@ pub fn light_pass(state: &GameState) -> Option<&Bitmap>
 	}
 
 	// Debug
-	if false
+	if true
 	{
 		state.hs.core.set_target_bitmap(state.hs.buffer1.as_ref());
 		state
@@ -405,9 +409,9 @@ pub fn light_pass(state: &GameState) -> Option<&Bitmap>
 			.set_blender(BlendOperation::Add, BlendMode::One, BlendMode::InverseAlpha);
 		state.hs.core.draw_bitmap(
 			//buffers[num_passes as usize % 2].unwrap(),
-			//state.light_buffer.as_ref().unwrap(),
+			state.light_buffer.as_ref().unwrap(),
 			//state.distance_buffer_fin.as_ref().unwrap(),
-			rc_buffer.unwrap(),
+			//rc_buffer.unwrap(),
 			0.,
 			0.,
 			Flag::zero(),

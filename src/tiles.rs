@@ -455,7 +455,7 @@ impl Tiles
 				{
 					if *height > 0.0
 					{
-						*height = utils::max(0.0, *height - 2. * TILE_SIZE * game_state::DT);
+						*height = utils::max(0.0, *height - 3. * TILE_SIZE * game_state::DT);
 					}
 					if *health < 0.0
 					{
