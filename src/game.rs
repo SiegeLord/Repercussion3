@@ -806,7 +806,9 @@ impl Map
 						{
 							*health -= 200. * DT;
 						}
-						tiles::TileKind::Empty | tiles::TileKind::Torch => (),
+						tiles::TileKind::Empty
+						| tiles::TileKind::Torch
+						| tiles::TileKind::Border => (),
 						tiles::TileKind::Support => *tile = tiles::TileKind::Empty,
 					};
 				}

@@ -25,6 +25,7 @@ pub enum TileKind
 	},
 	Torch,
 	Support,
+	Border,
 }
 
 impl TileKind
@@ -34,6 +35,7 @@ impl TileKind
 		match self
 		{
 			TileKind::Empty => (0, 0.0),
+			TileKind::Border => (1, 0.0),
 			TileKind::Rock { health, height, .. } =>
 			{
 				let num_tiles: i32 = 4;
@@ -58,6 +60,7 @@ impl TileKind
 		{
 			TileKind::Empty | TileKind::Torch | TileKind::Support => false,
 			TileKind::Rock { .. } => true,
+			TileKind::Border => true,
 		}
 	}
 }
@@ -111,6 +114,12 @@ impl Tiles
 					{
 						*intrinsic_support = over_empty;
 					}
+				}
+
+				if x == 0 || x == width - 1 || y == 0 || y == height - 1
+				{
+					let tile_idx = y * width + x;
+					tiles[tile_idx as usize] = TileKind::Border;
 				}
 			}
 		}
@@ -267,6 +276,7 @@ impl Tiles
 					{
 						TileKind::Rock { support, .. } => *support,
 						TileKind::Support => solid_support,
+						TileKind::Border => solid_support,
 						_ => 0,
 					}
 				};
@@ -282,6 +292,7 @@ impl Tiles
 					{
 						TileKind::Rock { support, .. } => *support,
 						TileKind::Support => solid_support,
+						TileKind::Border => solid_support,
 						_ => 0,
 					}
 				};
@@ -312,6 +323,7 @@ impl Tiles
 					{
 						TileKind::Rock { support, .. } => *support,
 						TileKind::Support => solid_support,
+						TileKind::Border => solid_support,
 						_ => 0,
 					}
 				};
@@ -326,6 +338,7 @@ impl Tiles
 					match &self.tiles[tile_idx as usize]
 					{
 						TileKind::Rock { support, .. } => *support,
+						TileKind::Border => solid_support,
 						_ => 0,
 					}
 				};
@@ -345,6 +358,7 @@ impl Tiles
 					match &self.tiles[tile_idx as usize]
 					{
 						TileKind::Rock { support, .. } => *support,
+						TileKind::Border => solid_support,
 						_ => 0,
 					}
 				};
@@ -452,9 +466,7 @@ impl Tiles
 						None
 					}
 				}
-				TileKind::Empty => None,
-				TileKind::Torch => None,
-				TileKind::Support => None,
+				TileKind::Empty | TileKind::Torch | TileKind::Support | TileKind::Border => None,
 			};
 			if let Some(new_tile) = new_tile
 			{
