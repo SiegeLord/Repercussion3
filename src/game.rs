@@ -168,6 +168,7 @@ fn spawn_demon(
 		comps::Gravity,
 		comps::Mover::new(),
 		comps::Health::new(50.),
+		comps::Explodes,
 		kind,
 	));
 
@@ -812,9 +813,14 @@ impl Map
 		let mut explosions = vec![];
 
 		// Demon breeding.
-		for (id, (position, solid, demon_kind)) in self
+		for (id, (position, solid, health, demon_kind)) in self
 			.world
-			.query::<(&comps::Position, &comps::Solid, &comps::DemonKind)>()
+			.query::<(
+				&comps::Position,
+				&comps::Solid,
+				&mut comps::Health,
+				&comps::DemonKind,
+			)>()
 			.iter()
 		{
 			if !rng.gen_bool(1e-3)
@@ -846,11 +852,7 @@ impl Map
 			{
 				if rng.gen_bool(0.5)
 				{
-					to_die.push(id);
-					explosions.push(pos);
-					spawn_fns.push(Box::new(move |map, state| {
-						spawn_explosion(pos, &mut map.world, state)
-					}));
+					health.cur_health -= 1000.0;
 				}
 				else
 				{
@@ -866,6 +868,27 @@ impl Map
 							&mut map.world,
 							state,
 						)
+					}));
+				}
+			}
+		}
+
+		// Health
+		for (id, health) in self.world.query::<&comps::Health>().iter()
+		{
+			if health.cur_health < 0.
+			{
+				to_die.push(id);
+				if let Some((position, _)) = self
+					.world
+					.query_one::<(&comps::Position, &comps::Explodes)>(id)
+					.unwrap()
+					.get()
+				{
+					let pos = position.pos;
+					explosions.push(pos);
+					spawn_fns.push(Box::new(move |map, state| {
+						spawn_explosion(pos, &mut map.world, state)
 					}));
 				}
 			}
@@ -899,15 +922,6 @@ impl Map
 				{
 					health.cur_health -= damage_fn(entry.inner.pos);
 				}
-			}
-		}
-
-		// Health
-		for (id, health) in self.world.query_mut::<&comps::Health>()
-		{
-			if health.cur_health < 0.
-			{
-				to_die.push(id);
 			}
 		}
 

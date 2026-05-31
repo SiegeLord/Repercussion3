@@ -312,3 +312,6 @@ impl Climber
 		Self { climbing: false }
 	}
 }
+
+#[derive(Debug, Clone)]
+pub struct Explodes;
