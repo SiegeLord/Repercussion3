@@ -125,7 +125,7 @@ vec4 radiance_cascades()
             if (dist <= min_step_size)
             {
                 vec4 src_color_raw = texture2D(al_tex, flip_y(src_uv));
-                vec4 src_color = 10. * pow(src_color_raw, vec4(POWER));
+                vec4 src_color = 2. * pow(src_color_raw, vec4(POWER));
                 radiance_delta += src_color;// * src_color_raw.a;
                 break;
             }

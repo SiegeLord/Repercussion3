@@ -17,6 +17,8 @@ pub enum TileKind
 	{
 		health: f32,
 	},
+	Torch,
+	Support,
 }
 
 impl TileKind
@@ -36,6 +38,8 @@ impl TileKind
 					num_tiles - 1,
 				)
 			}
+			TileKind::Torch => 5,
+			TileKind::Support => 6,
 		}
 	}
 
@@ -43,7 +47,7 @@ impl TileKind
 	{
 		match self
 		{
-			TileKind::Empty => false,
+			TileKind::Empty | TileKind::Torch | TileKind::Support => false,
 			TileKind::Rock { .. } => true,
 		}
 	}
@@ -157,13 +161,42 @@ impl Tiles
 		}
 	}
 
+	pub fn get_tiles_in_radius(
+		&mut self, pos: Point2<f32>, radius: f32,
+		mut callback_fn: impl FnMut(Point2<f32>, &mut TileKind),
+	)
+	{
+		let tile_x = (pos.x / TILE_SIZE) as i32;
+		let tile_y = (pos.y / TILE_SIZE) as i32;
+		let tile_radius = (radius / TILE_SIZE).ceil() as i32;
+		for map_y in tile_y - tile_radius..=tile_y + tile_radius
+		{
+			for map_x in tile_x - tile_radius..=tile_x + tile_radius
+			{
+				if map_x < 0 || map_x >= self.width || map_y < 0 || map_y >= self.height
+				{
+					continue;
+				}
+				let tile = &mut self.tiles[(map_y * self.width + map_x) as usize];
+				let tile_center = Point2::new(
+					map_x as f32 * TILE_SIZE + TILE_SIZE / 2.,
+					map_y as f32 * TILE_SIZE + TILE_SIZE / 2.,
+				);
+				if (pos - tile_center).norm() < radius
+				{
+					callback_fn(tile_center, tile)
+				}
+			}
+		}
+	}
+
 	/// size is radius.
 	pub fn get_escape_dir(
 		&self, pos: Point2<f32>, size: f32, avoid_fn: impl Fn(TileKind) -> bool,
 	) -> Option<Vector2<f32>>
 	{
-		let tile_x = ((pos.x) / TILE_SIZE) as i32;
-		let tile_y = ((pos.y) / TILE_SIZE) as i32;
+		let tile_x = (pos.x / TILE_SIZE) as i32;
+		let tile_y = (pos.y / TILE_SIZE) as i32;
 
 		let mut res = Vector2::zeros();
 		// TODO: This -1/1 isn't really right (???)
@@ -214,5 +247,33 @@ impl Tiles
 			}
 		}
 		if res.norm() > 0. { Some(res) } else { None }
+	}
+
+	pub fn logic(&mut self)
+	{
+		for tile in &mut self.tiles
+		{
+			let new_tile = match tile
+			{
+				TileKind::Rock { health } =>
+				{
+					if *health < 0.
+					{
+						Some(TileKind::Empty)
+					}
+					else
+					{
+						None
+					}
+				}
+				TileKind::Empty => None,
+				TileKind::Torch => None,
+				TileKind::Support => None,
+			};
+			if let Some(new_tile) = new_tile
+			{
+				*tile = new_tile;
+			}
+		}
 	}
 }

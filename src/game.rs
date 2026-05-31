@@ -142,6 +142,8 @@ fn spawn_player(
 		comps::Drill::new(),
 		comps::Light::new(Color::from_rgba(0, 0, 0, 6), 0.),
 		comps::Mover::new(),
+		comps::Health::new(100.),
+		comps::Climber::new(),
 	));
 
 	Ok(entity)
@@ -165,7 +167,25 @@ fn spawn_demon(
 		comps::AI::new(),
 		comps::Gravity,
 		comps::Mover::new(),
+		comps::Health::new(50.),
 		kind,
+	));
+
+	Ok(entity)
+}
+
+fn spawn_explosion(
+	pos: Point2<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
+) -> Result<hecs::Entity>
+{
+	let sprite_name = "data/explosion.cfg";
+	state.cache_sprite(sprite_name)?;
+
+	let entity = world.spawn((
+		comps::Position::new(pos),
+		comps::Appearance::new(sprite_name),
+		comps::Light::new(Color::from_rgb_f(1., 1., 1.), 0.),
+		comps::DieAfterAnimationDone,
 	));
 
 	Ok(entity)
@@ -261,6 +281,9 @@ impl Map
 	-> Result<Option<game_state::NextScreen>>
 	{
 		let mut to_die = vec![];
+		let mut spawn_fns: Vec<
+			Box<dyn FnOnce(&mut Map, &mut game_state::GameState) -> Result<hecs::Entity>>,
+		> = vec![];
 		let mut rng = rand::thread_rng();
 
 		// Position snapshotting.
@@ -281,8 +304,9 @@ impl Map
 		// Player input.
 		if self.world.contains(self.player)
 		{
-			if let Ok((drill, mover, demon_holder)) = self.world.query_one_mut::<(
+			if let Ok((drill, position, mover, demon_holder)) = self.world.query_one_mut::<(
 				&mut comps::Drill,
+				&comps::Position,
 				&mut comps::Mover,
 				&mut comps::DemonHolder,
 			)>(self.player)
@@ -293,6 +317,10 @@ impl Map
 				mover.want_move_right = state
 					.controls
 					.get_action_state(game_state::Action::MoveRight);
+				mover.want_move_up = state.controls.get_action_state(game_state::Action::MoveUp);
+				mover.want_move_down = state
+					.controls
+					.get_action_state(game_state::Action::MoveDown);
 				mover.want_jump = state.controls.get_action_state(game_state::Action::Jump) > 0.5;
 
 				drill.want_left = state
@@ -314,37 +342,72 @@ impl Map
 				state
 					.controls
 					.clear_action_state(game_state::Action::Pickup);
+
+				if state
+					.controls
+					.get_action_state(game_state::Action::PlaceTorch)
+					> 0.5
+				{
+					// XXX: Same question about torch
+					if let Some(tile) = self.tiles.get_tile_kind_mut(
+						position.pos + Vector2::new(tiles::TILE_SIZE / 2., tiles::TILE_SIZE / 2.),
+					)
+					{
+						if *tile == tiles::TileKind::Empty
+						{
+							*tile = tiles::TileKind::Torch;
+						}
+					}
+				}
+				state
+					.controls
+					.clear_action_state(game_state::Action::PlaceTorch);
+
+				if state
+					.controls
+					.get_action_state(game_state::Action::PlaceSupport)
+					> 0.5
+				{
+					if let Some(tile) = self.tiles.get_tile_kind_mut(position.pos)
+					{
+						*tile = tiles::TileKind::Support;
+					}
+				}
+				state
+					.controls
+					.clear_action_state(game_state::Action::PlaceSupport);
 			}
 		}
 
 		// AI.
-		for (_, (ai, mover)) in self
+		for (_id, (ai, mover)) in self
 			.world
 			.query::<(&mut comps::AI, &mut comps::Mover)>()
 			.iter()
 		{
 			let next_state_and_duration = if state.hs.time() > ai.time_to_decide
 			{
-				if rng.gen_bool(2. / 3.)
-				{
-					Some((comps::AIState::Idle, rng.gen_range(1.0..2.0)))
-				}
-				else
-				{
-					Some((
+				let next_states_and_weights = [
+					(comps::AIState::Idle, rng.gen_range(1.0..2.0), 10.0),
+					(
 						comps::AIState::Jump {
-							dir: *[-1., 1.].choose(&mut rng).unwrap() as f32,
+							dir: rng.gen_range(-1.0..1.0),
 						},
 						0.5,
-					))
-				}
+						3.0,
+					),
+				];
+				next_states_and_weights
+					.choose_weighted(&mut rng, |(_, _, weight)| *weight)
+					.ok()
+					.cloned()
 			}
 			else
 			{
 				None
 			};
 
-			if let Some((next_state, duration)) = next_state_and_duration
+			if let Some((next_state, duration, _)) = next_state_and_duration
 			{
 				ai.state = next_state;
 				ai.time_to_decide = state.hs.time() + duration;
@@ -367,6 +430,18 @@ impl Map
 			}
 		}
 
+		// Climber.
+		for (_, (position, climber)) in self
+			.world
+			.query_mut::<(&comps::Position, &mut comps::Climber)>()
+		{
+			// XXX: Same question about shift
+			climber.climbing = tiles::TileKind::Support
+				== self.tiles.get_tile_kind(
+					position.pos + Vector2::new(tiles::TILE_SIZE / 2., tiles::TILE_SIZE / 2.),
+				);
+		}
+
 		// Mover.
 		for (id, (velocity, acceleration, solid, mover)) in self
 			.world
@@ -378,7 +453,14 @@ impl Map
 			)>()
 			.iter()
 		{
+			let mut climber = self.world.get::<&mut comps::Climber>(id).ok();
+			let climbing = climber
+				.as_mut()
+				.map(|climber| climber.climbing)
+				.unwrap_or(false);
 			let right_left = mover.want_move_right - mover.want_move_left;
+			let down_up = mover.want_move_down - mover.want_move_up;
+
 			let want_drill = self
 				.world
 				.get::<&comps::Drill>(id)
@@ -386,25 +468,33 @@ impl Map
 					drill.want_left || drill.want_right || drill.want_down || drill.want_up
 				})
 				.unwrap_or(false);
+
 			let control = if solid.on_ground { 1. } else { 0.5 };
 			let can_move = !want_drill;
 			if can_move
 			{
-				acceleration.pos.x = 256. * right_left * control;
-				if right_left.abs() > 1e-1
+				if climbing
 				{
-					acceleration.last_change = acceleration.pos;
+					velocity.pos = 64. * Vector2::new(right_left, down_up);
 				}
-				if mover.want_jump && (state.hs.time() - solid.last_on_ground) < 0.2
+				else
 				{
-					velocity.pos.y -= 64.;
-					//println!("Jump: {}", velocity.pos.y);
+					acceleration.pos.x = 256. * right_left * control;
+					if right_left.abs() > 1e-1
+					{
+						acceleration.last_change = acceleration.pos;
+					}
+					if mover.want_jump && (state.hs.time() - solid.last_on_ground) < 0.2
+					{
+						velocity.pos.y -= 64.;
+						//println!("Jump: {}", velocity.pos.y);
+					}
 				}
 			}
 		}
 
 		// Friction.
-		for (_, (velocity, acceleration, solid)) in self
+		for (id, (velocity, acceleration, solid)) in self
 			.world
 			.query::<(
 				&mut comps::Velocity,
@@ -413,7 +503,12 @@ impl Map
 			)>()
 			.iter()
 		{
-			if solid.on_ground && acceleration.pos.x.abs() == 0.
+			let climbing = self
+				.world
+				.get::<&comps::Climber>(id)
+				.map(|climber| climber.climbing)
+				.unwrap_or(false);
+			if solid.on_ground && acceleration.pos.x.abs() == 0. && !climbing
 			{
 				let decel = 2048.;
 				if velocity.pos.x.abs() > 0. && acceleration.pos.x == 0.
@@ -431,9 +526,17 @@ impl Map
 		}
 
 		// Gravity.
-		for (_, acceleration) in self.world.query::<&mut comps::Acceleration>().iter()
+		for (id, acceleration) in self.world.query::<&mut comps::Acceleration>().iter()
 		{
-			acceleration.pos.y = 512.;
+			let climbing = self
+				.world
+				.get::<&comps::Climber>(id)
+				.map(|climber| climber.climbing)
+				.unwrap_or(false);
+			if !climbing
+			{
+				acceleration.pos.y = 512.;
+			}
 		}
 
 		// Velocity
@@ -537,7 +640,6 @@ impl Map
 		}
 
 		// Pickup.
-		// XXX: Weird how this happens after all the other stuff...
 		if self.world.contains(self.player)
 		{
 			let r = PICKUP_RADIUS;
@@ -649,11 +751,19 @@ impl Map
 		}
 
 		// Drill.
-		for (_, (position, drill)) in self
+		for (id, (position, drill)) in self
 			.world
 			.query::<(&comps::Position, &comps::Drill)>()
 			.iter()
 		{
+			if self
+				.world
+				.get::<&comps::DemonHolder>(id)
+				.map(|demon_holder| demon_holder.demon.is_some())
+				.unwrap_or(false)
+			{
+				continue;
+			}
 			let drill_dir = if drill.want_left
 			{
 				Some(Vector2::new(-1., 0.))
@@ -686,25 +796,139 @@ impl Map
 						+ Vector2::new(tiles::TILE_SIZE / 2., -(32. - 24.) + tiles::TILE_SIZE / 2.),
 				)
 				{
-					let new_tile = match tile
+					match tile
 					{
 						tiles::TileKind::Rock { health } =>
 						{
-							let new_health = *health - 75. * DT;
-							if new_health <= 0.
-							{
-								tiles::TileKind::Empty
-							}
-							else
-							{
-								tiles::TileKind::Rock { health: new_health }
-							}
+							*health -= 75. * DT;
 						}
-						tiles::TileKind::Empty => tiles::TileKind::Empty,
+						tiles::TileKind::Empty | tiles::TileKind::Torch => (),
+						tiles::TileKind::Support => *tile = tiles::TileKind::Empty,
 					};
-					*tile = new_tile;
 				}
 			}
+		}
+
+		let mut explosions = vec![];
+
+		// Demon breeding.
+		for (id, (position, solid, demon_kind)) in self
+			.world
+			.query::<(&comps::Position, &comps::Solid, &comps::DemonKind)>()
+			.iter()
+		{
+			if !rng.gen_bool(1e-3)
+			{
+				continue;
+			}
+			let r = solid.size;
+			let diff = Vector2::new(r, r);
+			let pos = position.pos;
+
+			let entries = grid.query_rect(pos - diff, pos + diff, |other| {
+				let other_id = other.inner.id;
+				// Sex needed.
+				if id == other_id
+				{
+					false
+				}
+				else if other.inner.solid.kind != comps::SolidKind::Demon
+				{
+					false
+				}
+				else
+				{
+					(other.inner.pos - position.pos).norm() < r
+				}
+			});
+
+			if let Some(entry) = entries.choose(&mut rng)
+			{
+				if rng.gen_bool(0.5)
+				{
+					to_die.push(id);
+					explosions.push(pos);
+					spawn_fns.push(Box::new(move |map, state| {
+						spawn_explosion(pos, &mut map.world, state)
+					}));
+				}
+				else
+				{
+					let other_demon_kind =
+						self.world.get::<&comps::DemonKind>(entry.inner.id).unwrap();
+					let new_demon_kind = demon_kind.mate_with(*other_demon_kind);
+
+					spawn_fns.push(Box::new(move |map, state| {
+						spawn_demon(
+							new_demon_kind,
+							pos,
+							Vector2::new(0., -512.),
+							&mut map.world,
+							state,
+						)
+					}));
+				}
+			}
+		}
+
+		for pos in explosions
+		{
+			let damage_fn = |target_pos: Point2<f32>| {
+				let f = 1. - utils::clamp((pos - target_pos).norm() / 128., 0., 1.);
+				50. * f
+			};
+			self.tiles
+				.get_tiles_in_radius(pos, 64., |tile_pos, tile_kind| {
+					if let tiles::TileKind::Rock { health } = tile_kind
+					{
+						*health -= damage_fn(tile_pos);
+					}
+				});
+
+			let r = 64.;
+			let diff = Vector2::new(r, r);
+			let entries = grid.query_rect(pos - diff, pos + diff, |other| {
+				(other.inner.pos - pos).norm() < r
+			});
+
+			for entry in entries
+			{
+				if let Ok(health) = self
+					.world
+					.query_one_mut::<&mut comps::Health>(entry.inner.id)
+				{
+					health.cur_health -= damage_fn(entry.inner.pos);
+				}
+			}
+		}
+
+		// Health
+		for (id, health) in self.world.query_mut::<&comps::Health>()
+		{
+			if health.cur_health < 0.
+			{
+				to_die.push(id);
+			}
+		}
+
+		// Tile maintenance.
+		self.tiles.logic();
+
+		// DieAfterAnimationDone
+		for (id, (appearance, _)) in self
+			.world
+			.query_mut::<(&mut comps::Appearance, &comps::DieAfterAnimationDone)>()
+		{
+			if appearance.animation_state.get_num_loops() > 0
+			{
+				to_die.push(id);
+			}
+		}
+
+		// Spawn fns;
+		for spawn_fn in spawn_fns
+		{
+			spawn_fn(self, state)?;
 		}
 
 		// Camera
@@ -747,7 +971,7 @@ impl Map
 			let dir_name_str = dir_name(acceleration.last_change.x);
 			let drill = self.world.get::<&comps::Drill>(id).ok();
 
-			let mut have_drill = drill.is_some();
+			let mut have_drill = drill.is_some() && !have_item;
 			if let Some(drill) = drill
 			{
 				let animation_name = if drill.want_left

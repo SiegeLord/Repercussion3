@@ -197,6 +197,11 @@ impl DemonKind
 			DemonKind::Demon3 => Color::from_rgb_f(1., 0., 1.),
 		}
 	}
+
+	pub fn mate_with(&self, _other: DemonKind) -> DemonKind
+	{
+		*self
+	}
 }
 
 #[derive(Debug, Clone)]
@@ -226,6 +231,8 @@ pub struct Mover
 {
 	pub want_move_left: f32,
 	pub want_move_right: f32,
+	pub want_move_up: f32,
+	pub want_move_down: f32,
 	pub want_jump: bool,
 }
 
@@ -236,12 +243,14 @@ impl Mover
 		Self {
 			want_move_left: 0.0,
 			want_move_right: 0.0,
+			want_move_down: 0.0,
+			want_move_up: 0.0,
 			want_jump: false,
 		}
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AIState
 {
 	Idle,
@@ -266,5 +275,40 @@ impl AI
 			time_to_decide: 0.,
 			state: AIState::Idle,
 		}
+	}
+}
+
+#[derive(Debug, Clone)]
+pub struct DieAfterAnimationDone;
+
+#[derive(Debug, Clone)]
+pub struct Health
+{
+	pub cur_health: f32,
+	pub max_health: f32,
+}
+
+impl Health
+{
+	pub fn new(max_health: f32) -> Self
+	{
+		Self {
+			cur_health: max_health,
+			max_health: max_health,
+		}
+	}
+}
+
+#[derive(Debug, Clone)]
+pub struct Climber
+{
+	pub climbing: bool,
+}
+
+impl Climber
+{
+	pub fn new() -> Self
+	{
+		Self { climbing: false }
 	}
 }
