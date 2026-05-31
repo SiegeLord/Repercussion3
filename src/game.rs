@@ -934,7 +934,7 @@ impl Map
 		{
 			let diff = Vector2::new(tiles::TILE_SIZE, tiles::TILE_SIZE);
 			let entries = grid.query_rect(kill_pos, kill_pos + diff, |other| {
-				(other.inner.pos - (kill_pos + diff * 0.5)).norm() < tiles::TILE_SIZE * 0.3
+				(other.inner.pos - (kill_pos + diff * 0.5)).norm() < tiles::TILE_SIZE * 0.45
 			});
 
 			for entry in entries

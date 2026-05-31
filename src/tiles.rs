@@ -298,6 +298,7 @@ impl Tiles
 					_ => (),
 				}
 			}
+
 			for x in (0..self.width).rev()
 			{
 				let right_support = if x == self.width - 1
@@ -315,6 +316,45 @@ impl Tiles
 					}
 				};
 
+				let bottom_left_support = if x == 0 || y == self.height - 1
+				{
+					solid_support
+				}
+				else
+				{
+					let tile_idx = (y + 1) * self.width + x - 1;
+					match &self.tiles[tile_idx as usize]
+					{
+						TileKind::Rock { support, .. } => *support,
+						_ => 0,
+					}
+				};
+
+				let mut num_supports = 0;
+				if bottom_left_support > 0
+				{
+					num_supports += 1;
+				}
+				let bottom_right_support = if x == self.width - 1 || y == self.height - 1
+				{
+					solid_support
+				}
+				else
+				{
+					let tile_idx = (y + 1) * self.width + x + 1;
+					match &self.tiles[tile_idx as usize]
+					{
+						TileKind::Rock { support, .. } => *support,
+						_ => 0,
+					}
+				};
+				if bottom_right_support > 0
+				{
+					num_supports += 1;
+				}
+
+				let bonus_support = if num_supports == 2 { 1 } else { 0 };
+
 				let tile_idx = y * self.width + x;
 				let tile = &mut self.tiles[tile_idx as usize];
 
@@ -326,16 +366,20 @@ impl Tiles
 						..
 					} =>
 					{
-						*support = utils::max(
-							if *intrinsic_support
-							{
-								solid_support
-							}
-							else
-							{
-								*support
-							},
-							right_support - 1,
+						*support = utils::clamp(
+							utils::max(
+								if *intrinsic_support
+								{
+									solid_support
+								}
+								else
+								{
+									*support
+								},
+								right_support - 1,
+							) + bonus_support,
+							0,
+							solid_support,
 						);
 					}
 					_ => (),
@@ -357,7 +401,7 @@ impl Tiles
 				{
 					if *height == 0. && *support <= 0
 					{
-						Some(*health - 25.0)
+						Some(*health)
 					}
 					else
 					{
