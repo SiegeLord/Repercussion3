@@ -317,17 +317,3 @@ impl Climber
 
 #[derive(Debug, Clone)]
 pub struct Explodes;
-
-#[derive(Debug, Clone)]
-pub struct Purse
-{
-	pub money: i32,
-}
-
-impl Purse
-{
-	pub fn new(money: i32) -> Self
-	{
-		Self { money: money }
-	}
-}

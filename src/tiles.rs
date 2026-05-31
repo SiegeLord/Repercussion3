@@ -26,11 +26,13 @@ pub enum TileKind
 	Torch,
 	Support,
 	Border,
+	Grinder,
+	Jaunter,
 }
 
 impl TileKind
 {
-	fn get_frame_and_height(&self) -> (i32, f32)
+	fn get_frame_and_height(&self, time: f64) -> (i32, f32)
 	{
 		match self
 		{
@@ -51,6 +53,8 @@ impl TileKind
 			}
 			TileKind::Torch => (5, 0.0),
 			TileKind::Support => (6, 0.0),
+			TileKind::Grinder => (7 + ((time * 3.) as i32 % 2), 0.),
+			TileKind::Jaunter => (9 + ((time * 3.) as i32 % 2), 0.),
 		}
 	}
 
@@ -58,9 +62,8 @@ impl TileKind
 	{
 		match self
 		{
-			TileKind::Empty | TileKind::Torch | TileKind::Support => false,
-			TileKind::Rock { .. } => true,
-			TileKind::Border => true,
+			TileKind::Empty | TileKind::Torch | TileKind::Support | TileKind::Jaunter => false,
+			TileKind::Rock { .. } | TileKind::Border | TileKind::Grinder => true,
 		}
 	}
 }
@@ -123,6 +126,8 @@ impl Tiles
 				}
 			}
 		}
+
+		tiles[(width * (height - 1) + width / 2) as usize] = TileKind::Grinder;
 
 		Ok(Self {
 			tiles: tiles,
@@ -195,6 +200,47 @@ impl Tiles
 					callback_fn(tile_center, tile)
 				}
 			}
+		}
+	}
+
+	pub fn get_next_jaunter(&self, pos: Point2<f32>) -> Option<Point2<f32>>
+	{
+		if let Some(cur_idx) = self.get_tile_idx(pos)
+		{
+			if self.tiles[cur_idx] != TileKind::Jaunter
+			{
+				return None;
+			}
+			for (offt_idx, tile) in self.tiles[cur_idx + 1..].iter().enumerate()
+			{
+				if *tile == TileKind::Jaunter
+				{
+					let tile_idx = cur_idx + 1 + offt_idx;
+					let tile_x = tile_idx % self.width as usize;
+					let tile_y = tile_idx / self.width as usize;
+					return Some(Point2::new(
+						tile_x as f32 * TILE_SIZE,
+						tile_y as f32 * TILE_SIZE,
+					));
+				}
+			}
+			for (tile_idx, tile) in self.tiles[0..cur_idx].iter().enumerate()
+			{
+				if *tile == TileKind::Jaunter
+				{
+					let tile_x = tile_idx % self.width as usize;
+					let tile_y = tile_idx / self.width as usize;
+					return Some(Point2::new(
+						tile_x as f32 * TILE_SIZE,
+						tile_y as f32 * TILE_SIZE,
+					));
+				}
+			}
+			None
+		}
+		else
+		{
+			None
 		}
 	}
 
@@ -466,7 +512,12 @@ impl Tiles
 						None
 					}
 				}
-				TileKind::Empty | TileKind::Torch | TileKind::Support | TileKind::Border => None,
+				TileKind::Empty
+				| TileKind::Torch
+				| TileKind::Support
+				| TileKind::Border
+				| TileKind::Grinder
+				| TileKind::Jaunter => None,
 			};
 			if let Some(new_tile) = new_tile
 			{
@@ -487,7 +538,7 @@ impl Tiles
 			for x in 0..self.width
 			{
 				let tile_kind = self.tiles[y as usize * self.width as usize + x as usize];
-				let (frame, tile_height) = tile_kind.get_frame_and_height();
+				let (frame, tile_height) = tile_kind.get_frame_and_height(state.hs.time());
 				let (atlas_bmp, offt) = sprite.get_frame("Default", frame);
 
 				// HACK: I don't like this...

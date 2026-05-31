@@ -63,9 +63,10 @@ slhack::actions! {
 		DrillRight = [Some(controls::Input::Keyboard(KeyCode::D)), Some(controls::Input::JoystickPosAxis(JoystickStick::RightThumb, 0))],
 		DrillUp = [Some(controls::Input::Keyboard(KeyCode::W)), Some(controls::Input::JoystickNegAxis(JoystickStick::RightThumb, 1))],
 		DrillDown = [Some(controls::Input::Keyboard(KeyCode::S)), Some(controls::Input::JoystickPosAxis(JoystickStick::RightThumb, 1))],
-		PlaceTorch = [Some(controls::Input::Keyboard(KeyCode::T)), Some(controls::Input::JoystickButton(JoystickButton::X))],
-		PlaceSupport = [Some(controls::Input::Keyboard(KeyCode::G)), Some(controls::Input::JoystickButton(JoystickButton::Y))],
-		EatDemon = [Some(controls::Input::Keyboard(KeyCode::E)), Some(controls::Input::JoystickButton(JoystickButton::Y))],
+		EatDemon = [Some(controls::Input::Keyboard(KeyCode::E)), Some(controls::Input::JoystickButton(JoystickButton::X))],
+		PlaceTorch = [Some(controls::Input::Keyboard(KeyCode::T)), Some(controls::Input::JoystickNegAxis(JoystickStick::DPad, 0))],
+		PlaceSupport = [Some(controls::Input::Keyboard(KeyCode::G)), Some(controls::Input::JoystickPosAxis(JoystickStick::DPad, 0))],
+		PlaceJaunter = [Some(controls::Input::Keyboard(KeyCode::J)), Some(controls::Input::JoystickPosAxis(JoystickStick::DPad, 1))],
 	}
 }
 

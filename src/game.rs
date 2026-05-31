@@ -16,6 +16,7 @@ const PICKUP_RADIUS: f32 = 16.0;
 const DRILL_RADIUS: f32 = 18.0;
 const TORCH_COST: i32 = 20;
 const SUPPORT_COST: i32 = 10;
+const JAUNTER_COST: i32 = 30;
 
 pub struct Game
 {
@@ -146,7 +147,6 @@ fn spawn_player(
 		comps::Mover::new(),
 		comps::Health::new(100.),
 		comps::Climber::new(),
-		comps::Purse::new(100),
 	));
 
 	Ok(entity)
@@ -232,10 +232,11 @@ struct Map
 	tiles: tiles::Tiles,
 	camera_pos: comps::Position,
 	player: hecs::Entity,
-	transaction_amount: i32,
-	transaction_time: f64,
-	heal_amount: i32,
-	heal_time: f64,
+	money: i32,
+	money_change_amount: i32,
+	money_change_time: f64,
+	health_change_amount: i32,
+	health_change_time: f64,
 }
 
 impl Map
@@ -282,10 +283,11 @@ impl Map
 			tiles: tiles::Tiles::new(16, 16)?,
 			camera_pos: comps::Position::new(Point2::origin()),
 			player: player,
-			transaction_time: 0.,
-			transaction_amount: 0,
-			heal_time: 0.,
-			heal_amount: 0,
+			money_change_time: 0.,
+			money_change_amount: 0,
+			health_change_time: 0.,
+			health_change_amount: 0,
+			money: 100,
 		})
 	}
 
@@ -314,12 +316,11 @@ impl Map
 		}
 
 		// Player input.
-		if let Ok((drill, position, mover, demon_holder, purse)) = self.world.query_one_mut::<(
+		if let Ok((drill, position, mover, demon_holder)) = self.world.query_one_mut::<(
 			&mut comps::Drill,
 			&comps::Position,
 			&mut comps::Mover,
 			&mut comps::DemonHolder,
-			&mut comps::Purse,
 		)>(self.player)
 		{
 			mover.want_move_left = state
@@ -366,12 +367,8 @@ impl Map
 				.get_action_state(game_state::Action::PlaceTorch)
 				> 0.5
 			{
-				if purse.money >= TORCH_COST
+				if self.money >= TORCH_COST
 				{
-					purse.money -= TORCH_COST;
-					self.transaction_amount = -TORCH_COST;
-					self.transaction_time = state.hs.time();
-
 					// XXX: Same question about shift.
 					if let Some(tile) = self.tiles.get_tile_kind_mut(
 						position.pos + Vector2::new(tiles::TILE_SIZE / 2., tiles::TILE_SIZE / 2.),
@@ -379,6 +376,9 @@ impl Map
 					{
 						if *tile == tiles::TileKind::Empty
 						{
+							self.money -= TORCH_COST;
+							self.money_change_amount = -TORCH_COST;
+							self.money_change_time = state.hs.time();
 							*tile = tiles::TileKind::Torch;
 						}
 					}
@@ -393,24 +393,52 @@ impl Map
 				.get_action_state(game_state::Action::PlaceSupport)
 				> 0.5
 			{
-				if purse.money >= SUPPORT_COST
+				if self.money >= SUPPORT_COST
 				{
-					purse.money -= SUPPORT_COST;
-					self.transaction_amount = -SUPPORT_COST;
-					self.transaction_time = state.hs.time();
-
 					// XXX: Same question about shift.
 					if let Some(tile) = self.tiles.get_tile_kind_mut(
 						position.pos + Vector2::new(tiles::TILE_SIZE / 2., tiles::TILE_SIZE / 2.),
 					)
 					{
-						*tile = tiles::TileKind::Support;
+						if *tile == tiles::TileKind::Empty || *tile == tiles::TileKind::Torch
+						{
+							self.money -= SUPPORT_COST;
+							self.money_change_amount = -SUPPORT_COST;
+							self.money_change_time = state.hs.time();
+							*tile = tiles::TileKind::Support;
+						}
 					}
 				}
 			}
 			state
 				.controls
 				.clear_action_state(game_state::Action::PlaceSupport);
+
+			if state
+				.controls
+				.get_action_state(game_state::Action::PlaceJaunter)
+				> 0.5
+			{
+				if self.money >= JAUNTER_COST
+				{
+					// XXX: Same question about shift.
+					if let Some(tile) = self.tiles.get_tile_kind_mut(
+						position.pos + Vector2::new(tiles::TILE_SIZE / 2., tiles::TILE_SIZE / 2.),
+					)
+					{
+						if *tile == tiles::TileKind::Empty
+						{
+							self.money -= JAUNTER_COST;
+							self.money_change_amount = -JAUNTER_COST;
+							self.money_change_time = state.hs.time();
+							*tile = tiles::TileKind::Jaunter;
+						}
+					}
+				}
+			}
+			state
+				.controls
+				.clear_action_state(game_state::Action::PlaceTorch);
 		}
 
 		// AI.
@@ -477,12 +505,13 @@ impl Map
 		}
 
 		// Mover.
-		for (id, (velocity, acceleration, solid, mover)) in self
+		for (id, (position, velocity, acceleration, solid, mover)) in self
 			.world
 			.query::<(
+				&mut comps::Position,
 				&mut comps::Velocity,
 				&mut comps::Acceleration,
-				&comps::Solid,
+				&mut comps::Solid,
 				&comps::Mover,
 			)>()
 			.iter()
@@ -504,7 +533,23 @@ impl Map
 				.unwrap_or(false);
 
 			let control = if solid.on_ground { 1. } else { 0.5 };
-			let can_move = !want_drill;
+			let mut can_move = !want_drill;
+
+			// Jaunting.
+			//
+			// XXX: Same question about shift.
+			if mover.want_jump && solid.on_ground
+			{
+				if let Some(jaunt_pos) = self.tiles.get_next_jaunter(
+					position.pos + Vector2::new(tiles::TILE_SIZE / 2., tiles::TILE_SIZE / 2.),
+				)
+				{
+					position.set_pos(jaunt_pos);
+					can_move = false;
+					solid.last_on_ground = -100.;
+				}
+			}
+
 			if can_move
 			{
 				if climbing
@@ -735,8 +780,8 @@ impl Map
 						let old_health = health.cur_health;
 						health.cur_health =
 							utils::clamp(health.cur_health + 20.0, 0.0, health.max_health);
-						self.heal_amount = (health.cur_health - old_health) as i32;
-						self.heal_time = state.hs.time();
+						self.health_change_amount = (health.cur_health - old_health) as i32;
+						self.health_change_time = state.hs.time();
 					}
 				}
 			}
@@ -851,16 +896,20 @@ impl Map
 						}
 						tiles::TileKind::Empty
 						| tiles::TileKind::Torch
-						| tiles::TileKind::Border => (),
+						| tiles::TileKind::Border
+						| tiles::TileKind::Grinder => (),
 						tiles::TileKind::Support =>
 						{
 							if id == self.player
-								&& let Ok(mut purse) = self.world.get::<&mut comps::Purse>(id)
 							{
-								purse.money += SUPPORT_COST;
-								self.transaction_amount = SUPPORT_COST;
-								self.transaction_time = state.hs.time();
+								self.money += SUPPORT_COST;
+								self.money_change_amount = SUPPORT_COST;
+								self.money_change_time = state.hs.time();
 							}
+							*tile = tiles::TileKind::Empty;
+						}
+						tiles::TileKind::Jaunter =>
+						{
 							*tile = tiles::TileKind::Empty;
 						}
 					};
@@ -931,6 +980,29 @@ impl Map
 			}
 		}
 
+		// Grinder.
+		for (id, (_demon_kind, position, solid)) in self
+			.world
+			.query::<(&comps::DemonKind, &comps::Position, &comps::Solid)>()
+			.iter()
+		{
+			if self.tiles.get_tile_kind(
+				position.pos
+					+ Vector2::new(
+						tiles::TILE_SIZE / 2.,
+						tiles::TILE_SIZE / 2. + tiles::TILE_SIZE / 2.,
+					),
+			) == tiles::TileKind::Grinder
+				&& solid.on_ground
+			{
+				let amount = 100;
+				self.money += amount;
+				self.money_change_amount = amount;
+				self.money_change_time = state.hs.time();
+				to_die.push(id);
+			}
+		}
+
 		// Health
 		for (id, health) in self.world.query::<&comps::Health>().iter()
 		{
@@ -983,8 +1055,8 @@ impl Map
 					health.cur_health -= damage;
 					if entry.inner.id == self.player
 					{
-						self.heal_amount = -damage.ceil() as i32;
-						self.heal_time = state.hs.time();
+						self.health_change_amount = -damage.ceil() as i32;
+						self.health_change_time = state.hs.time();
 					}
 				}
 			}
@@ -1312,9 +1384,7 @@ impl Map
 			.use_shader(state.basic_shader.as_ref())
 			.unwrap();
 
-		if let Ok((health, purse)) = self
-			.world
-			.query_one_mut::<(&comps::Health, &comps::Purse)>(self.player)
+		if let Ok(health) = self.world.query_one_mut::<&comps::Health>(self.player)
 		{
 			let pad = 8.;
 			let lh = state.hs.ui_font().get_line_height() as f32 + 2.;
@@ -1335,15 +1405,18 @@ impl Map
 				state.hs.buffer_width() - pad,
 				pad,
 				FontAlign::Right,
-				&format!("Money: ${}", purse.money),
+				&format!("Money: ${}", self.money),
 			);
 
-			if self.transaction_amount != 0
+			if self.money_change_amount != 0
 			{
 				let dur = 3.;
-				let f = utils::clamp(1. - (state.hs.time() - self.transaction_time) / dur, 0., 1.)
-					as f32;
-				let (color, sign) = if self.transaction_amount >= 0
+				let f = utils::clamp(
+					1. - (state.hs.time() - self.money_change_time) / dur,
+					0.,
+					1.,
+				) as f32;
+				let (color, sign) = if self.money_change_amount >= 0
 				{
 					(Color::from_rgba_f(0.2 * f, 0.6 * f, 0.1 * f, f), "+")
 				}
@@ -1358,15 +1431,19 @@ impl Map
 					state.hs.buffer_width() - pad,
 					pad + lh,
 					FontAlign::Right,
-					&format!("{}${}", sign, self.transaction_amount.abs()),
+					&format!("{}${}", sign, self.money_change_amount.abs()),
 				);
 			}
 
-			if self.heal_time > 0.
+			if self.health_change_time > 0.
 			{
 				let dur = 3.;
-				let f = utils::clamp(1. - (state.hs.time() - self.heal_time) / dur, 0., 1.) as f32;
-				let (color, sign) = if self.heal_amount >= 0
+				let f = utils::clamp(
+					1. - (state.hs.time() - self.health_change_time) / dur,
+					0.,
+					1.,
+				) as f32;
+				let (color, sign) = if self.health_change_amount >= 0
 				{
 					(Color::from_rgba_f(0.2 * f, 0.6 * f, 0.1 * f, f), "+")
 				}
@@ -1381,7 +1458,7 @@ impl Map
 					pad,
 					pad + lh,
 					FontAlign::Left,
-					&format!("{}{}", sign, self.heal_amount.abs()),
+					&format!("{}{}", sign, self.health_change_amount.abs()),
 				);
 			}
 		}
