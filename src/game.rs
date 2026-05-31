@@ -14,6 +14,8 @@ use std::f32::consts::PI;
 const MAX_SPEED: f32 = 150.0;
 const PICKUP_RADIUS: f32 = 16.0;
 const DRILL_RADIUS: f32 = 18.0;
+const TORCH_COST: i32 = 20;
+const SUPPORT_COST: i32 = 10;
 
 pub struct Game
 {
@@ -144,6 +146,7 @@ fn spawn_player(
 		comps::Mover::new(),
 		comps::Health::new(100.),
 		comps::Climber::new(),
+		comps::Purse::new(100),
 	));
 
 	Ok(entity)
@@ -229,6 +232,10 @@ struct Map
 	tiles: tiles::Tiles,
 	camera_pos: comps::Position,
 	player: hecs::Entity,
+	transaction_amount: i32,
+	transaction_time: f64,
+	heal_amount: i32,
+	heal_time: f64,
 }
 
 impl Map
@@ -275,6 +282,10 @@ impl Map
 			tiles: tiles::Tiles::new(16, 16)?,
 			camera_pos: comps::Position::new(Point2::origin()),
 			player: player,
+			transaction_time: 0.,
+			transaction_amount: 0,
+			heal_time: 0.,
+			heal_amount: 0,
 		})
 	}
 
@@ -303,52 +314,64 @@ impl Map
 		}
 
 		// Player input.
-		if self.world.contains(self.player)
+		if let Ok((drill, position, mover, demon_holder, purse)) = self.world.query_one_mut::<(
+			&mut comps::Drill,
+			&comps::Position,
+			&mut comps::Mover,
+			&mut comps::DemonHolder,
+			&mut comps::Purse,
+		)>(self.player)
 		{
-			if let Ok((drill, position, mover, demon_holder)) = self.world.query_one_mut::<(
-				&mut comps::Drill,
-				&comps::Position,
-				&mut comps::Mover,
-				&mut comps::DemonHolder,
-			)>(self.player)
+			mover.want_move_left = state
+				.controls
+				.get_action_state(game_state::Action::MoveLeft);
+			mover.want_move_right = state
+				.controls
+				.get_action_state(game_state::Action::MoveRight);
+			mover.want_move_up = state.controls.get_action_state(game_state::Action::MoveUp);
+			mover.want_move_down = state
+				.controls
+				.get_action_state(game_state::Action::MoveDown);
+			mover.want_jump = state.controls.get_action_state(game_state::Action::Jump) > 0.5;
+
+			drill.want_left = state
+				.controls
+				.get_action_state(game_state::Action::DrillLeft)
+				> 0.5;
+			drill.want_right = state
+				.controls
+				.get_action_state(game_state::Action::DrillRight)
+				> 0.5;
+			drill.want_up = state.controls.get_action_state(game_state::Action::DrillUp) > 0.5;
+			drill.want_down = state
+				.controls
+				.get_action_state(game_state::Action::DrillDown)
+				> 0.5;
+
+			demon_holder.want_pickup =
+				state.controls.get_action_state(game_state::Action::Pickup) > 0.5;
+			state
+				.controls
+				.clear_action_state(game_state::Action::Pickup);
+			demon_holder.want_eat = state
+				.controls
+				.get_action_state(game_state::Action::EatDemon)
+				> 0.5;
+			state
+				.controls
+				.clear_action_state(game_state::Action::EatDemon);
+
+			if state
+				.controls
+				.get_action_state(game_state::Action::PlaceTorch)
+				> 0.5
 			{
-				mover.want_move_left = state
-					.controls
-					.get_action_state(game_state::Action::MoveLeft);
-				mover.want_move_right = state
-					.controls
-					.get_action_state(game_state::Action::MoveRight);
-				mover.want_move_up = state.controls.get_action_state(game_state::Action::MoveUp);
-				mover.want_move_down = state
-					.controls
-					.get_action_state(game_state::Action::MoveDown);
-				mover.want_jump = state.controls.get_action_state(game_state::Action::Jump) > 0.5;
-
-				drill.want_left = state
-					.controls
-					.get_action_state(game_state::Action::DrillLeft)
-					> 0.5;
-				drill.want_right = state
-					.controls
-					.get_action_state(game_state::Action::DrillRight)
-					> 0.5;
-				drill.want_up = state.controls.get_action_state(game_state::Action::DrillUp) > 0.5;
-				drill.want_down = state
-					.controls
-					.get_action_state(game_state::Action::DrillDown)
-					> 0.5;
-
-				demon_holder.want_pickup =
-					state.controls.get_action_state(game_state::Action::Pickup) > 0.5;
-				state
-					.controls
-					.clear_action_state(game_state::Action::Pickup);
-
-				if state
-					.controls
-					.get_action_state(game_state::Action::PlaceTorch)
-					> 0.5
+				if purse.money >= TORCH_COST
 				{
+					purse.money -= TORCH_COST;
+					self.transaction_amount = -TORCH_COST;
+					self.transaction_time = state.hs.time();
+
 					// XXX: Same question about shift.
 					if let Some(tile) = self.tiles.get_tile_kind_mut(
 						position.pos + Vector2::new(tiles::TILE_SIZE / 2., tiles::TILE_SIZE / 2.),
@@ -360,15 +383,22 @@ impl Map
 						}
 					}
 				}
-				state
-					.controls
-					.clear_action_state(game_state::Action::PlaceTorch);
+			}
+			state
+				.controls
+				.clear_action_state(game_state::Action::PlaceTorch);
 
-				if state
-					.controls
-					.get_action_state(game_state::Action::PlaceSupport)
-					> 0.5
+			if state
+				.controls
+				.get_action_state(game_state::Action::PlaceSupport)
+				> 0.5
+			{
+				if purse.money >= SUPPORT_COST
 				{
+					purse.money -= SUPPORT_COST;
+					self.transaction_amount = -SUPPORT_COST;
+					self.transaction_time = state.hs.time();
+
 					// XXX: Same question about shift.
 					if let Some(tile) = self.tiles.get_tile_kind_mut(
 						position.pos + Vector2::new(tiles::TILE_SIZE / 2., tiles::TILE_SIZE / 2.),
@@ -377,10 +407,10 @@ impl Map
 						*tile = tiles::TileKind::Support;
 					}
 				}
-				state
-					.controls
-					.clear_action_state(game_state::Action::PlaceSupport);
 			}
+			state
+				.controls
+				.clear_action_state(game_state::Action::PlaceSupport);
 		}
 
 		// AI.
@@ -643,18 +673,19 @@ impl Map
 			));
 		}
 
-		// Pickup.
+		// Demon holder.
 		if self.world.contains(self.player)
 		{
 			let r = PICKUP_RADIUS;
 			let mut do_spawn_demon = None;
 			let mut pickup_demon = None;
-			if let Ok((position, velocity, acceleration, demon_holder)) =
+			if let Ok((position, velocity, acceleration, demon_holder, health)) =
 				self.world.query_one_mut::<(
 					&mut comps::Position,
 					&comps::Velocity,
 					&comps::Acceleration,
 					&mut comps::DemonHolder,
+					&mut comps::Health,
 				)>(self.player)
 			{
 				if demon_holder.want_pickup
@@ -694,6 +725,18 @@ impl Map
 							velocity.pos,
 							acceleration.last_change.x.signum(),
 						));
+					}
+				}
+				if demon_holder.want_eat
+				{
+					if let Some(demon_item_id) = demon_holder.demon.take()
+					{
+						to_die.push(demon_item_id);
+						let old_health = health.cur_health;
+						health.cur_health =
+							utils::clamp(health.cur_health + 20.0, 0.0, health.max_health);
+						self.heal_amount = (health.cur_health - old_health) as i32;
+						self.heal_time = state.hs.time();
 					}
 				}
 			}
@@ -809,7 +852,17 @@ impl Map
 						tiles::TileKind::Empty
 						| tiles::TileKind::Torch
 						| tiles::TileKind::Border => (),
-						tiles::TileKind::Support => *tile = tiles::TileKind::Empty,
+						tiles::TileKind::Support =>
+						{
+							if id == self.player
+								&& let Ok(mut purse) = self.world.get::<&mut comps::Purse>(id)
+							{
+								purse.money += SUPPORT_COST;
+								self.transaction_amount = SUPPORT_COST;
+								self.transaction_time = state.hs.time();
+							}
+							*tile = tiles::TileKind::Empty;
+						}
 					};
 				}
 			}
@@ -926,7 +979,13 @@ impl Map
 					.world
 					.query_one_mut::<&mut comps::Health>(entry.inner.id)
 				{
-					health.cur_health -= damage_fn(entry.inner.pos);
+					let damage = damage_fn(entry.inner.pos);
+					health.cur_health -= damage;
+					if entry.inner.id == self.player
+					{
+						self.heal_amount = -damage.ceil() as i32;
+						self.heal_time = state.hs.time();
+					}
 				}
 			}
 		}
@@ -1091,7 +1150,7 @@ impl Map
 	{
 		let alpha = state.hs.alpha;
 
-		let camera_shift = self.camera_shift(alpha, state)
+		let camera_shift = self.camera_shift(alpha)
 			+ Vector2::new(
 				state.light_buffer.as_ref().unwrap().get_width() as f32 / 2.,
 				state.light_buffer.as_ref().unwrap().get_height() as f32 / 2.,
@@ -1166,12 +1225,11 @@ impl Map
 			indices.len() as u32,
 			PrimType::TriangleList,
 		);
-		//state.hs.core.draw_bitmap(state.get_bitmap("data/circle.png").unwrap(), 50., 50., Flag::zero());
 
 		let rc_buffer = game_state::light_pass(state);
 		//return Ok(());
 
-		let camera_shift = self.camera_shift(alpha, state)
+		let camera_shift = self.camera_shift(alpha)
 			+ Vector2::new(state.hs.buffer_width() / 2., state.hs.buffer_height() / 2.);
 
 		// Draw map.
@@ -1254,6 +1312,80 @@ impl Map
 			.use_shader(state.basic_shader.as_ref())
 			.unwrap();
 
+		if let Ok((health, purse)) = self
+			.world
+			.query_one_mut::<(&comps::Health, &comps::Purse)>(self.player)
+		{
+			let pad = 8.;
+			let lh = state.hs.ui_font().get_line_height() as f32 + 2.;
+			let color = Color::from_rgb_f(0.8, 0.6, 0.7);
+
+			state.hs.core.draw_text(
+				state.hs.ui_font(),
+				color,
+				pad,
+				pad,
+				FontAlign::Left,
+				&format!("Health: {}", health.cur_health as i32),
+			);
+
+			state.hs.core.draw_text(
+				state.hs.ui_font(),
+				color,
+				state.hs.buffer_width() - pad,
+				pad,
+				FontAlign::Right,
+				&format!("Money: ${}", purse.money),
+			);
+
+			if self.transaction_amount != 0
+			{
+				let dur = 3.;
+				let f = utils::clamp(1. - (state.hs.time() - self.transaction_time) / dur, 0., 1.)
+					as f32;
+				let (color, sign) = if self.transaction_amount >= 0
+				{
+					(Color::from_rgba_f(0.2 * f, 0.6 * f, 0.1 * f, f), "+")
+				}
+				else
+				{
+					(Color::from_rgba_f(0.6 * f, 0.2 * f, 0.1 * f, f), "-")
+				};
+
+				state.hs.core.draw_text(
+					state.hs.ui_font(),
+					color,
+					state.hs.buffer_width() - pad,
+					pad + lh,
+					FontAlign::Right,
+					&format!("{}${}", sign, self.transaction_amount.abs()),
+				);
+			}
+
+			if self.heal_time > 0.
+			{
+				let dur = 3.;
+				let f = utils::clamp(1. - (state.hs.time() - self.heal_time) / dur, 0., 1.) as f32;
+				let (color, sign) = if self.heal_amount >= 0
+				{
+					(Color::from_rgba_f(0.2 * f, 0.6 * f, 0.1 * f, f), "+")
+				}
+				else
+				{
+					(Color::from_rgba_f(0.6 * f, 0.2 * f, 0.1 * f, f), "-")
+				};
+
+				state.hs.core.draw_text(
+					state.hs.ui_font(),
+					color,
+					pad,
+					pad + lh,
+					FontAlign::Left,
+					&format!("{}{}", sign, self.heal_amount.abs()),
+				);
+			}
+		}
+
 		//self.tiles
 		//	.draw_support(Point2::origin() + camera_shift, state)?;
 
@@ -1266,7 +1398,7 @@ impl Map
 			- Vector2::new(state.hs.buffer_width() / 2., state.hs.buffer_height() / 2.)
 	}
 
-	fn camera_shift(&self, alpha: f32, state: &game_state::GameState) -> Vector2<f32>
+	fn camera_shift(&self, alpha: f32) -> Vector2<f32>
 	{
 		-self.camera_pos.draw_pos(alpha).xy().coords
 	}

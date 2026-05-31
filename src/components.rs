@@ -165,6 +165,7 @@ pub struct DemonHolder
 {
 	pub demon: Option<hecs::Entity>,
 	pub want_pickup: bool,
+	pub want_eat: bool,
 }
 
 impl DemonHolder
@@ -174,6 +175,7 @@ impl DemonHolder
 		Self {
 			demon: None,
 			want_pickup: false,
+			want_eat: false,
 		}
 	}
 }
@@ -315,3 +317,17 @@ impl Climber
 
 #[derive(Debug, Clone)]
 pub struct Explodes;
+
+#[derive(Debug, Clone)]
+pub struct Purse
+{
+	pub money: i32,
+}
+
+impl Purse
+{
+	pub fn new(money: i32) -> Self
+	{
+		Self { money: money }
+	}
+}
