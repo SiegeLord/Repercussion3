@@ -349,7 +349,7 @@ impl Map
 					.get_action_state(game_state::Action::PlaceTorch)
 					> 0.5
 				{
-					// XXX: Same question about torch
+					// XXX: Same question about shift.
 					if let Some(tile) = self.tiles.get_tile_kind_mut(
 						position.pos + Vector2::new(tiles::TILE_SIZE / 2., tiles::TILE_SIZE / 2.),
 					)
@@ -369,7 +369,10 @@ impl Map
 					.get_action_state(game_state::Action::PlaceSupport)
 					> 0.5
 				{
-					if let Some(tile) = self.tiles.get_tile_kind_mut(position.pos)
+					// XXX: Same question about shift.
+					if let Some(tile) = self.tiles.get_tile_kind_mut(
+						position.pos + Vector2::new(tiles::TILE_SIZE / 2., tiles::TILE_SIZE / 2.),
+					)
 					{
 						*tile = tiles::TileKind::Support;
 					}
@@ -799,9 +802,9 @@ impl Map
 				{
 					match tile
 					{
-						tiles::TileKind::Rock { health } =>
+						tiles::TileKind::Rock { health, .. } =>
 						{
-							*health -= 75. * DT;
+							*health -= 200. * DT;
 						}
 						tiles::TileKind::Empty | tiles::TileKind::Torch => (),
 						tiles::TileKind::Support => *tile = tiles::TileKind::Empty,
@@ -894,6 +897,7 @@ impl Map
 			}
 		}
 
+		// Explosions.
 		for pos in explosions
 		{
 			let damage_fn = |target_pos: Point2<f32>| {
@@ -902,7 +906,7 @@ impl Map
 			};
 			self.tiles
 				.get_tiles_in_radius(pos, 64., |tile_pos, tile_kind| {
-					if let tiles::TileKind::Rock { health } = tile_kind
+					if let tiles::TileKind::Rock { health, .. } = tile_kind
 					{
 						*health -= damage_fn(tile_pos);
 					}
@@ -926,7 +930,23 @@ impl Map
 		}
 
 		// Tile maintenance.
-		self.tiles.logic();
+		for kill_pos in self.tiles.logic()
+		{
+			let diff = Vector2::new(tiles::TILE_SIZE, tiles::TILE_SIZE);
+			let entries = grid.query_rect(kill_pos, kill_pos + diff, |other| {
+				(other.inner.pos - (kill_pos + diff * 0.5)).norm() < tiles::TILE_SIZE * 0.3
+			});
+
+			for entry in entries
+			{
+				if let Ok(health) = self
+					.world
+					.query_one_mut::<&mut comps::Health>(entry.inner.id)
+				{
+					health.cur_health -= 1000.;
+				}
+			}
+		}
 
 		// DieAfterAnimationDone
 		for (id, (appearance, _)) in self
@@ -1197,6 +1217,10 @@ impl Map
 			.core
 			.use_shader(state.basic_shader.as_ref())
 			.unwrap();
+
+		//self.tiles
+		//	.draw_support(Point2::origin() + camera_shift, state)?;
+
 		Ok(())
 	}
 

@@ -6,6 +6,9 @@ use slhack::utils;
 use std::collections::HashMap;
 use std::path::Path;
 
+use allegro::*;
+use allegro_font::*;
+
 pub const TILE_SIZE: f32 = 32.;
 pub const TILE_MAX_HEALTH: f32 = 100.;
 
@@ -16,6 +19,9 @@ pub enum TileKind
 	Rock
 	{
 		health: f32,
+		support: i32,
+		intrinsic_support: bool,
+		height: f32,
 	},
 	Torch,
 	Support,
@@ -23,23 +29,26 @@ pub enum TileKind
 
 impl TileKind
 {
-	fn get_idx(&self) -> i32
+	fn get_frame_and_height(&self) -> (i32, f32)
 	{
 		match self
 		{
-			TileKind::Empty => 0,
-			TileKind::Rock { health } =>
+			TileKind::Empty => (0, 0.0),
+			TileKind::Rock { health, height, .. } =>
 			{
 				let num_tiles: i32 = 4;
 				let f = health / TILE_MAX_HEALTH;
-				1 + utils::clamp(
-					num_tiles - 1 - (f * num_tiles as f32 - 0.5).trunc() as i32,
-					0,
-					num_tiles - 1,
+				(
+					1 + utils::clamp(
+						num_tiles - 1 - (f * num_tiles as f32 - 0.5).trunc() as i32,
+						0,
+						num_tiles - 1,
+					),
+					*height,
 				)
 			}
-			TileKind::Torch => 5,
-			TileKind::Support => 6,
+			TileKind::Torch => (5, 0.0),
+			TileKind::Support => (6, 0.0),
 		}
 	}
 
@@ -66,7 +75,10 @@ impl Tiles
 	{
 		let mut tiles = vec![
 			TileKind::Rock {
-				health: TILE_MAX_HEALTH
+				health: TILE_MAX_HEALTH,
+				support: 0,
+				intrinsic_support: false,
+				height: 0.,
 			};
 			(width * height) as usize
 		];
@@ -84,43 +96,30 @@ impl Tiles
 			}
 		}
 
+		for y in 0..height
+		{
+			for x in 0..width
+			{
+				if y < height - 1
+				{
+					let tile_idx = (y + 1) * width + x;
+					let over_empty = matches!(tiles[tile_idx as usize], TileKind::Empty);
+					let tile_idx = y * width + x;
+					if let TileKind::Rock {
+						intrinsic_support, ..
+					} = &mut tiles[tile_idx as usize]
+					{
+						*intrinsic_support = over_empty;
+					}
+				}
+			}
+		}
+
 		Ok(Self {
 			tiles: tiles,
 			width: width,
 			height: height,
 		})
-	}
-
-	pub fn draw(
-		&self, sprite: &str, pos: Point2<f32>, batch: &mut draw_batch::DrawBatch,
-		state: &game_state::GameState, lit: bool,
-	) -> Result<()>
-	{
-		let sprite = state.get_sprite(sprite)?;
-		for y in 0..self.height
-		{
-			for x in 0..self.width
-			{
-				let tile_kind = self.tiles[y as usize * self.width as usize + x as usize];
-				let (atlas_bmp, offt) = sprite.get_frame("Default", tile_kind.get_idx());
-
-				let tile_pos = Vector2::new(x as f32 * TILE_SIZE, y as f32 * TILE_SIZE);
-				let pos = utils::round_point(pos + tile_pos) + offt;
-				batch.add_bitmap(
-					Point2::new(pos.x, pos.y),
-					atlas_bmp,
-					if lit
-					{
-						game_state::MaterialKind::Lit
-					}
-					else
-					{
-						game_state::MaterialKind::Default
-					},
-				);
-			}
-		}
-		Ok(())
 	}
 
 	fn get_tile_idx(&self, pos: Point2<f32>) -> Option<usize>
@@ -249,15 +248,158 @@ impl Tiles
 		if res.norm() > 0. { Some(res) } else { None }
 	}
 
-	pub fn logic(&mut self)
+	pub fn logic(&mut self) -> Vec<Point2<f32>>
 	{
+		let mut kill_pos = vec![];
+		let solid_support = 3;
+		for y in (0..self.height).rev()
+		{
+			for x in 0..self.width
+			{
+				let bottom_support = if y == self.height - 1
+				{
+					solid_support
+				}
+				else
+				{
+					let tile_idx = (y + 1) * self.width + x;
+					match &self.tiles[tile_idx as usize]
+					{
+						TileKind::Rock { support, .. } => *support,
+						TileKind::Support => solid_support,
+						_ => 0,
+					}
+				};
+
+				let left_support = if x == 0
+				{
+					solid_support
+				}
+				else
+				{
+					let tile_idx = y * self.width + x - 1;
+					match &self.tiles[tile_idx as usize]
+					{
+						TileKind::Rock { support, .. } => *support,
+						TileKind::Support => solid_support,
+						_ => 0,
+					}
+				};
+
+				let tile_idx = y * self.width + x;
+				let tile = &mut self.tiles[tile_idx as usize];
+
+				match tile
+				{
+					TileKind::Rock { support, .. } =>
+					{
+						*support = utils::max(left_support - 1, bottom_support);
+					}
+					_ => (),
+				}
+			}
+			for x in (0..self.width).rev()
+			{
+				let right_support = if x == self.width - 1
+				{
+					solid_support
+				}
+				else
+				{
+					let tile_idx = y * self.width + x + 1;
+					match &self.tiles[tile_idx as usize]
+					{
+						TileKind::Rock { support, .. } => *support,
+						TileKind::Support => solid_support,
+						_ => 0,
+					}
+				};
+
+				let tile_idx = y * self.width + x;
+				let tile = &mut self.tiles[tile_idx as usize];
+
+				match tile
+				{
+					TileKind::Rock {
+						support,
+						intrinsic_support,
+						..
+					} =>
+					{
+						*support = utils::max(
+							if *intrinsic_support
+							{
+								solid_support
+							}
+							else
+							{
+								*support
+							},
+							right_support - 1,
+						);
+					}
+					_ => (),
+				}
+			}
+		}
+
+		for y in (0..self.height - 1).rev()
+		{
+			for x in 0..self.width
+			{
+				let tile_idx = y * self.width + x;
+				let health = if let TileKind::Rock {
+					health,
+					support,
+					height,
+					..
+				} = &self.tiles[tile_idx as usize]
+				{
+					if *height == 0. && *support <= 0
+					{
+						Some(*health - 25.0)
+					}
+					else
+					{
+						None
+					}
+				}
+				else
+				{
+					None
+				};
+
+				if let Some(health) = health
+				{
+					let tile_idx = y * self.width + x;
+					self.tiles[tile_idx as usize] = TileKind::Empty;
+					let tile_idx = (y + 1) * self.width + x;
+
+					kill_pos.push(Point2::new(
+						x as f32 * TILE_SIZE,
+						(y + 1) as f32 * TILE_SIZE,
+					));
+					self.tiles[tile_idx as usize] = TileKind::Rock {
+						health,
+						support: 0,
+						intrinsic_support: false,
+						height: TILE_SIZE,
+					};
+				}
+			}
+		}
+
 		for tile in &mut self.tiles
 		{
 			let new_tile = match tile
 			{
-				TileKind::Rock { health } =>
+				TileKind::Rock { health, height, .. } =>
 				{
-					if *health < 0.
+					if *height > 0.0
+					{
+						*height = utils::max(0.0, *height - 2. * TILE_SIZE * game_state::DT);
+					}
+					if *health < 0.0
 					{
 						Some(TileKind::Empty)
 					}
@@ -275,5 +417,96 @@ impl Tiles
 				*tile = new_tile;
 			}
 		}
+		kill_pos
+	}
+
+	pub fn draw(
+		&self, sprite: &str, pos: Point2<f32>, batch: &mut draw_batch::DrawBatch,
+		state: &game_state::GameState, lit: bool,
+	) -> Result<()>
+	{
+		let sprite = state.get_sprite(sprite)?;
+		for y in 0..self.height
+		{
+			for x in 0..self.width
+			{
+				let tile_kind = self.tiles[y as usize * self.width as usize + x as usize];
+				let (frame, tile_height) = tile_kind.get_frame_and_height();
+				let (atlas_bmp, offt) = sprite.get_frame("Default", frame);
+
+				// HACK: I don't like this...
+				if tile_height != 0.
+				{
+					let tile_pos = Vector2::new(x as f32 * TILE_SIZE, y as f32 * TILE_SIZE);
+
+					let (atlas_bmp, offt) = sprite.get_frame("Default", 0);
+					let pos = utils::round_point(pos + tile_pos) + offt;
+					batch.add_bitmap(
+						Point2::new(pos.x, pos.y),
+						atlas_bmp,
+						if lit
+						{
+							game_state::MaterialKind::Lit
+						}
+						else
+						{
+							game_state::MaterialKind::Default
+						},
+					);
+				}
+				let tile_pos =
+					Vector2::new(x as f32 * TILE_SIZE, y as f32 * TILE_SIZE - tile_height);
+				let pos = utils::round_point(pos + tile_pos) + offt;
+				batch.add_bitmap(
+					Point2::new(pos.x, pos.y),
+					atlas_bmp,
+					if lit
+					{
+						game_state::MaterialKind::Lit
+					}
+					else
+					{
+						game_state::MaterialKind::Default
+					},
+				);
+			}
+		}
+		Ok(())
+	}
+
+	pub fn draw_support(&self, pos: Point2<f32>, state: &game_state::GameState) -> Result<()>
+	{
+		state.hs.core.hold_bitmap_drawing(true);
+		for y in 0..self.height
+		{
+			for x in 0..self.width
+			{
+				let tile_kind = self.tiles[y as usize * self.width as usize + x as usize];
+
+				let tile_pos = Vector2::new(x as f32 * TILE_SIZE, y as f32 * TILE_SIZE);
+				let pos = utils::round_point(pos + tile_pos);
+				if let TileKind::Rock { support, .. } = tile_kind
+				{
+					let color = if support > 0
+					{
+						Color::from_rgb_f(1., 1., 1.)
+					}
+					else
+					{
+						Color::from_rgb_f(1., 0.5, 0.)
+					};
+					state.hs.core.draw_text(
+						state.hs.ui_font(),
+						color,
+						pos.x,
+						pos.y,
+						FontAlign::Centre,
+						&format!("{}", support),
+					);
+				}
+			}
+		}
+		state.hs.core.hold_bitmap_drawing(false);
+		Ok(())
 	}
 }
