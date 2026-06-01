@@ -100,7 +100,9 @@ impl game_loop::LoopState for LoopState
 		game_state.resize_display().into_slhack()?;
 
 		//self.cur_screen = Some(Screen::Menu(menu::Menu::new(game_state).into_slhack()?));
-		self.cur_screen = Some(Screen::Game(game::Game::new(game_state).into_slhack()?));
+		self.cur_screen = Some(Screen::Game(
+			game::Game::new(true, game_state).into_slhack()?,
+		));
 		Ok(())
 	}
 
@@ -156,10 +158,10 @@ impl game_loop::LoopState for LoopState
 	{
 		match self.next_screen
 		{
-			Some(game_state::NextScreen::Game) =>
+			Some(game_state::NextScreen::Game(resume)) =>
 			{
 				self.cur_screen = Some(Screen::Game(
-					game::Game::new(&mut self.game_state).into_slhack()?,
+					game::Game::new(resume, &mut self.game_state).into_slhack()?,
 				))
 			}
 			Some(game_state::NextScreen::Menu) =>

@@ -1,6 +1,7 @@
 use crate::error::Result;
 use crate::{draw_batch, game_state};
 use nalgebra::{Point2, Point3, Vector2};
+use serde_derive::{Deserialize, Serialize};
 use slhack::utils;
 
 use std::collections::HashMap;
@@ -12,7 +13,7 @@ use allegro_font::*;
 pub const TILE_SIZE: f32 = 32.;
 pub const TILE_MAX_HEALTH: f32 = 100.;
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TileKind
 {
 	Empty,
@@ -68,6 +69,7 @@ impl TileKind
 	}
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Tiles
 {
 	tiles: Vec<TileKind>,

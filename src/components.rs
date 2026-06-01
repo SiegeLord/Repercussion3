@@ -3,11 +3,35 @@ use crate::game_state;
 use allegro::*;
 use nalgebra::{Point2, UnitQuaternion, Vector2};
 use rand::prelude::*;
+use serde_derive::{Deserialize, Serialize};
 use slhack::sprite;
 
-#[derive(Debug, Copy, Clone)]
+mod serialize_color
+{
+	use allegro::*;
+	use serde::de::{Deserialize, Deserializer};
+	use serde::ser::{Serialize, Serializer};
+
+	pub fn serialize<S>(color: &Color, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		color.to_rgba_array_f().serialize(serializer)
+	}
+
+	pub fn deserialize<'de, D>(deserializer: D) -> Result<Color, D::Error>
+	where
+		D: Deserializer<'de>,
+	{
+		let color = <[f32; 4]>::deserialize(deserializer)?;
+		Ok(Color::from_rgba_f(color[0], color[1], color[2], color[3]))
+	}
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct Light
 {
+	#[serde(with = "serialize_color")]
 	pub color: Color,
 	pub y_offt: f32,
 }
@@ -23,7 +47,7 @@ impl Light
 	}
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct Position
 {
 	pub pos: Point2<f32>,
@@ -58,7 +82,7 @@ impl Position
 	}
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct Velocity
 {
 	pub pos: Vector2<f32>,
@@ -80,7 +104,7 @@ impl Velocity
 	}
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct Acceleration
 {
 	pub pos: Vector2<f32>,
@@ -98,7 +122,7 @@ impl Acceleration
 	}
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SolidKind
 {
 	Player,
@@ -106,7 +130,7 @@ pub enum SolidKind
 	Enemy,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct Solid
 {
 	pub size: f32,
@@ -128,7 +152,7 @@ impl Solid
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Appearance
 {
 	pub sprite: String,
@@ -158,10 +182,10 @@ impl Appearance
 	}
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct Gravity;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DemonHolder
 {
 	pub demon: Option<hecs::Entity>,
@@ -181,7 +205,7 @@ impl DemonHolder
 	}
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum DemonKind
 {
 	Demon1,
@@ -207,7 +231,7 @@ impl DemonKind
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Drill
 {
 	pub want_left: bool,
@@ -229,7 +253,7 @@ impl Drill
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mover
 {
 	pub want_move_left: f32,
@@ -253,7 +277,7 @@ impl Mover
 	}
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AIState
 {
 	Idle,
@@ -267,7 +291,7 @@ pub enum AIState
 	},
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AI
 {
 	pub time_to_decide: f64,
@@ -296,10 +320,10 @@ impl AI
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DieAfterAnimationDone;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Health
 {
 	pub cur_health: f32,
@@ -317,7 +341,7 @@ impl Health
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Climber
 {
 	pub climbing: bool,
@@ -331,10 +355,10 @@ impl Climber
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Explodes;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Langolier
 {
 	pub time_to_bite: f64,
@@ -345,5 +369,79 @@ impl Langolier
 	pub fn new() -> Self
 	{
 		Self { time_to_bite: 0. }
+	}
+}
+
+macro_rules! serialize_components {
+	($id_enum:ident $hecs_context:ident { $($component:ident ),* $(,)? } ) => {
+
+		#[derive(Serialize, Deserialize)]
+		pub enum $id_enum
+		{
+			$($component,)*
+		}
+
+		pub struct $hecs_context;
+
+		impl hecs::serialize::row::SerializeContext for $hecs_context {
+		    fn serialize_entity<S>(
+		        &mut self,
+		        entity: hecs::EntityRef<'_>,
+		        mut map: S,
+		    ) -> Result<S::Ok, S::Error>
+		    where
+		        S: serde::ser::SerializeMap,
+		    {
+				$(
+			        hecs::serialize::row::try_serialize::<$component, _, _>(&entity, &$id_enum::$component, &mut map)?;
+				)*
+		        map.end()
+		    }
+		}
+
+		impl hecs::serialize::row::DeserializeContext for $hecs_context {
+			fn deserialize_entity<'de, M>(
+    		    &mut self,
+    		    mut map: M,
+    		    entity: &mut hecs::EntityBuilder,
+    		) -> Result<(), M::Error>
+			    where
+			        M: serde::de::MapAccess<'de>,
+		    {
+		        while let Some(key) = map.next_key()? {
+		            match key {
+						$(
+							$id_enum::$component => {
+								entity.add::<$component>(map.next_value()?);
+							}
+						)*
+		            }
+		        }
+		        Ok(())
+		    }
+		}
+	}
+}
+
+serialize_components! {
+	ComponentId HecsContext
+	{
+		Light,
+		Position,
+		Velocity,
+		Acceleration,
+		Solid,
+		Appearance,
+		Gravity,
+		DemonHolder,
+		DemonKind,
+		Drill,
+		Mover,
+		AI,
+		DieAfterAnimationDone,
+		Health,
+		Climber,
+		Explodes,
+		Langolier,
 	}
 }

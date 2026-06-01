@@ -7,6 +7,7 @@ use allegro_font::*;
 use allegro_primitives::*;
 use nalgebra::{Matrix4, Point2, Vector2};
 use rand::prelude::*;
+use serde_derive::{Deserialize, Serialize};
 use slhack::{controls, scene, spatial_grid, sprite, ui as slhack_ui};
 
 use std::collections::HashMap;
@@ -27,13 +28,18 @@ pub struct Game
 
 impl Game
 {
-	pub fn new(state: &mut game_state::GameState) -> Result<Self>
+	pub fn new(resume: bool, state: &mut game_state::GameState) -> Result<Self>
 	{
 		state
 			.sfx
 			.play_music("data/Repercussion3_1.ogg", 1.0, &state.hs.core);
+		let mut map = Map::new(state)?;
+		if resume
+		{
+			map.load(state)?;
+		}
 		Ok(Self {
-			map: Map::new(state)?,
+			map: map,
 			subscreens: ui::SubScreens::new(state),
 		})
 	}
@@ -95,6 +101,7 @@ impl Game
 				{
 					ui::Action::MainMenu =>
 					{
+						self.map.save(state)?;
 						return Ok(Some(game_state::NextScreen::Menu));
 					}
 					_ => (),
@@ -254,6 +261,38 @@ struct GridInner
 	solid: comps::Solid,
 }
 
+mod world_serialize
+{
+	use serde::de::{Deserialize, Deserializer};
+	use serde::ser::{Serialize, Serializer};
+
+	pub fn serialize<S>(world: &hecs::World, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		hecs::serialize::row::serialize(world, &mut crate::components::HecsContext, serializer)
+	}
+
+	pub fn deserialize<'de, D>(deserializer: D) -> Result<hecs::World, D::Error>
+	where
+		D: Deserializer<'de>,
+	{
+		hecs::serialize::row::deserialize(&mut crate::components::HecsContext, deserializer)
+	}
+}
+
+#[derive(Serialize, Deserialize)]
+struct Save
+{
+	tick: i64,
+	money: i32,
+	player: hecs::Entity,
+	tiles: tiles::Tiles,
+	camera_pos: comps::Position,
+	#[serde(with = "world_serialize")]
+	world: hecs::World,
+}
+
 struct Map
 {
 	world: hecs::World,
@@ -328,9 +367,71 @@ impl Map
 		})
 	}
 
+	fn save(&mut self, state: &game_state::GameState) -> Result<()>
+	{
+		let mut dummy_world = hecs::World::new();
+		std::mem::swap(&mut dummy_world, &mut self.world);
+		let mut save = Save {
+			tick: state.hs.tick,
+			world: dummy_world,
+			camera_pos: self.camera_pos,
+			money: self.money,
+			player: self.player,
+			tiles: self.tiles.clone(),
+		};
+		println!("Saving");
+		utils::save_user_data(&state.hs.core, "save.cfg", &save)?;
+		std::mem::swap(&mut save.world, &mut self.world);
+		Ok(())
+	}
+
+	fn load(&mut self, state: &mut game_state::GameState) -> Result<()>
+	{
+		println!("Loading");
+		if let Some(save) = utils::load_user_data::<Save>(&state.hs.core, "save.cfg")?
+		{
+			state.hs.tick = save.tick;
+			self.world = save.world;
+			self.camera_pos = save.camera_pos;
+			self.money = save.money;
+			self.player = save.player;
+			self.tiles = save.tiles;
+
+			for (_, appearance) in self.world.query_mut::<&comps::Appearance>()
+			{
+				state.cache_sprite(&appearance.sprite)?;
+			}
+		}
+		Ok(())
+	}
+
 	fn logic(&mut self, state: &mut game_state::GameState)
 	-> Result<Option<game_state::NextScreen>>
 	{
+		if self.world.contains(self.player)
+		{
+			if state
+				.controls
+				.get_action_state(game_state::Action::QuickSave)
+				> 0.5
+			{
+				self.save(state)?;
+			}
+			state
+				.controls
+				.clear_action_state(game_state::Action::QuickSave);
+			if state
+				.controls
+				.get_action_state(game_state::Action::QuickLoad)
+				> 0.5
+			{
+				self.load(state)?;
+			}
+			state
+				.controls
+				.clear_action_state(game_state::Action::QuickLoad);
+		}
+
 		let mut to_die = vec![];
 		let mut spawn_fns: Vec<
 			Box<dyn FnOnce(&mut Map, &mut game_state::GameState) -> Result<hecs::Entity>>,

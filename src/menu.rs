@@ -44,7 +44,8 @@ impl Menu
 		{
 			match action
 			{
-				ui::Action::Start => return Ok(Some(game_state::NextScreen::Game)),
+				ui::Action::Resume => return Ok(Some(game_state::NextScreen::Game(true))),
+				ui::Action::Start => return Ok(Some(game_state::NextScreen::Game(false))),
 				ui::Action::Quit => return Ok(Some(game_state::NextScreen::Quit)),
 				_ => (),
 			}
