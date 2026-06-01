@@ -203,7 +203,7 @@ impl Tiles
 		}
 	}
 
-	pub fn get_next_jaunter(&self, pos: Point2<f32>) -> Option<Point2<f32>>
+	pub fn get_jaunt_dest(&self, pos: Point2<f32>) -> Option<Point2<f32>>
 	{
 		if let Some(cur_idx) = self.get_tile_idx(pos)
 		{
@@ -211,32 +211,36 @@ impl Tiles
 			{
 				return None;
 			}
+			let mut grinder_pos = None;
+			let tile_pos_fn = |tile_idx| {
+				let tile_x = tile_idx % self.width as usize;
+				let tile_y = tile_idx / self.width as usize;
+				Point2::new(tile_x as f32 * TILE_SIZE, tile_y as f32 * TILE_SIZE)
+			};
 			for (offt_idx, tile) in self.tiles[cur_idx + 1..].iter().enumerate()
 			{
+				let tile_idx = cur_idx + 1 + offt_idx;
 				if *tile == TileKind::Jaunter
 				{
-					let tile_idx = cur_idx + 1 + offt_idx;
-					let tile_x = tile_idx % self.width as usize;
-					let tile_y = tile_idx / self.width as usize;
-					return Some(Point2::new(
-						tile_x as f32 * TILE_SIZE,
-						tile_y as f32 * TILE_SIZE,
-					));
+					return Some(tile_pos_fn(tile_idx));
+				}
+				else if *tile == TileKind::Grinder
+				{
+					grinder_pos = Some(tile_pos_fn(tile_idx) - Vector2::new(0., TILE_SIZE));
 				}
 			}
 			for (tile_idx, tile) in self.tiles[0..cur_idx].iter().enumerate()
 			{
 				if *tile == TileKind::Jaunter
 				{
-					let tile_x = tile_idx % self.width as usize;
-					let tile_y = tile_idx / self.width as usize;
-					return Some(Point2::new(
-						tile_x as f32 * TILE_SIZE,
-						tile_y as f32 * TILE_SIZE,
-					));
+					return Some(tile_pos_fn(tile_idx));
+				}
+				else if *tile == TileKind::Grinder
+				{
+					grinder_pos = Some(tile_pos_fn(tile_idx) - Vector2::new(0., TILE_SIZE));
 				}
 			}
-			None
+			grinder_pos
 		}
 		else
 		{

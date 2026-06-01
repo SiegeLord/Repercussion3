@@ -671,7 +671,7 @@ impl Map
 					)?;
 				}
 
-				if let Some(jaunt_pos) = self.tiles.get_next_jaunter(
+				if let Some(jaunt_pos) = self.tiles.get_jaunt_dest(
 					position.pos + Vector2::new(tiles::TILE_SIZE / 2., tiles::TILE_SIZE / 2.),
 				)
 				{
