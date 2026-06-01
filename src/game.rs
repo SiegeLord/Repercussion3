@@ -2,6 +2,7 @@ use crate::error::{Result, ResultHelper};
 use crate::game_state::DT;
 use crate::{components as comps, draw_batch, game_state, tiles, ui, utils};
 use allegro::*;
+use allegro_audio::*;
 use allegro_font::*;
 use allegro_primitives::*;
 use nalgebra::{Matrix4, Point2, Vector2};
@@ -264,6 +265,7 @@ struct Map
 	money_change_time: f64,
 	health_change_amount: i32,
 	health_change_time: f64,
+	drill_sound: SampleInstance,
 }
 
 impl Map
@@ -307,6 +309,10 @@ impl Map
 
 		let pos = Point2::new(tiles::TILE_SIZE * 4., tiles::TILE_SIZE * 10.);
 		spawn_langolier(pos, &mut world, state)?;
+		spawn_langolier(pos, &mut world, state)?;
+
+		let drill_sound = state.sfx.play_continuous_sound("data/drill.ogg", 1.)?;
+		drill_sound.set_gain(0.0).ok();
 
 		Ok(Self {
 			world: world,
@@ -318,6 +324,7 @@ impl Map
 			health_change_time: 0.,
 			health_change_amount: 0,
 			money: 100,
+			drill_sound: drill_sound,
 		})
 	}
 
@@ -408,6 +415,12 @@ impl Map
 					{
 						if *tile == tiles::TileKind::Empty
 						{
+							state.sfx.play_positional_sound(
+								"data/build.ogg",
+								position.pos,
+								self.camera_pos.pos,
+								1.,
+							)?;
 							self.money -= TORCH_COST;
 							self.money_change_amount = -TORCH_COST;
 							self.money_change_time = state.hs.time();
@@ -434,6 +447,12 @@ impl Map
 					{
 						if *tile == tiles::TileKind::Empty || *tile == tiles::TileKind::Torch
 						{
+							state.sfx.play_positional_sound(
+								"data/build.ogg",
+								position.pos,
+								self.camera_pos.pos,
+								1.,
+							)?;
 							self.money -= SUPPORT_COST;
 							self.money_change_amount = -SUPPORT_COST;
 							self.money_change_time = state.hs.time();
@@ -460,6 +479,12 @@ impl Map
 					{
 						if *tile == tiles::TileKind::Empty
 						{
+							state.sfx.play_positional_sound(
+								"data/build.ogg",
+								position.pos,
+								self.camera_pos.pos,
+								1.,
+							)?;
 							self.money -= JAUNTER_COST;
 							self.money_change_amount = -JAUNTER_COST;
 							self.money_change_time = state.hs.time();
@@ -497,8 +522,8 @@ impl Map
 
 					[
 						(comps::AIState::Idle, rng.gen_range(1.0..2.0), 10.0),
-						(comps::AIState::Jump { dir: dir }, 0.25, pursue_weight),
-						(comps::AIState::Move { dir: dir }, 0.25, 2. * pursue_weight),
+						(comps::AIState::Jump { dir: dir }, 1., pursue_weight),
+						(comps::AIState::Move { dir: dir }, 1., 2. * pursue_weight),
 					]
 				}
 				else
@@ -533,6 +558,22 @@ impl Map
 
 			if let Some((next_state, duration, _)) = next_state_and_duration
 			{
+				match next_state
+				{
+					comps::AIState::Move { .. } | comps::AIState::Jump { .. } =>
+					{
+						if ai.enemy
+						{
+							state.sfx.play_positional_sound(
+								"data/click.ogg",
+								position.pos,
+								self.camera_pos.pos,
+								1.,
+							)?;
+						}
+					}
+					_ => (),
+				}
 				ai.state = next_state;
 				ai.time_to_decide = state.hs.time() + duration;
 			}
@@ -600,6 +641,18 @@ impl Map
 				})
 				.unwrap_or(false);
 
+			if id == self.player
+			{
+				if want_drill
+				{
+					self.drill_sound.set_gain(1.0).ok();
+				}
+				else
+				{
+					self.drill_sound.set_gain(0.).ok();
+				}
+			}
+
 			let control = if solid.on_ground { 1. } else { 0.5 };
 			let mut can_move = !want_drill;
 
@@ -608,10 +661,33 @@ impl Map
 			// XXX: Same question about shift.
 			if mover.want_jump && solid.on_ground
 			{
+				if id == self.player
+				{
+					state.sfx.play_positional_sound(
+						"data/jump.ogg",
+						position.pos,
+						self.camera_pos.pos,
+						1.,
+					)?;
+				}
+
 				if let Some(jaunt_pos) = self.tiles.get_next_jaunter(
 					position.pos + Vector2::new(tiles::TILE_SIZE / 2., tiles::TILE_SIZE / 2.),
 				)
 				{
+					state.sfx.play_positional_sound(
+						"data/jaunt.ogg",
+						position.pos,
+						self.camera_pos.pos,
+						1.,
+					)?;
+					state.sfx.play_positional_sound(
+						"data/jaunt.ogg",
+						jaunt_pos,
+						self.camera_pos.pos,
+						1.,
+					)?;
+
 					position.set_pos(jaunt_pos);
 					can_move = false;
 					solid.last_on_ground = -100.;
@@ -713,7 +789,7 @@ impl Map
 		}
 
 		// Solid.
-		for (_id, (position, velocity, solid)) in self
+		for (id, (position, velocity, solid)) in self
 			.world
 			.query::<(
 				&mut comps::Position,
@@ -729,9 +805,21 @@ impl Map
 			)
 			{
 				position.pos += escape_dir;
+				let old_on_ground = solid.on_ground;
 				solid.on_ground = escape_dir.y < -1e-3;
 				if solid.on_ground
 				{
+					if !old_on_ground
+						&& id == self.player
+						&& (state.hs.time - solid.last_on_ground) > 0.1
+					{
+						state.sfx.play_positional_sound(
+							"data/land.ogg",
+							position.pos,
+							self.camera_pos.pos,
+							1.,
+						)?;
+					}
 					solid.last_on_ground = state.hs.time();
 				}
 				let norm_escape_dir = escape_dir.normalize();
@@ -821,6 +909,7 @@ impl Map
 						}
 					});
 
+					let mut play_sound = false;
 					if let Some(demon_entry) = entries.iter().copied().next()
 					{
 						let item_pos = position.pos
@@ -829,6 +918,7 @@ impl Map
 								-8.,
 							);
 						pickup_demon = Some((demon_entry.inner.id, item_pos));
+						play_sound = true;
 					}
 					if let Some(demon_item_id) = demon_holder.demon.take()
 					{
@@ -838,12 +928,29 @@ impl Map
 							velocity.pos,
 							acceleration.last_change.x.signum(),
 						));
+						play_sound = true;
+					}
+					if play_sound
+					{
+						state.sfx.play_positional_sound(
+							"data/pickup.ogg",
+							position.pos,
+							self.camera_pos.pos,
+							1.,
+						)?;
 					}
 				}
 				if demon_holder.want_eat
 				{
 					if let Some(demon_item_id) = demon_holder.demon.take()
 					{
+						state.sfx.play_positional_sound(
+							"data/eat.ogg",
+							position.pos,
+							self.camera_pos.pos,
+							1.,
+						)?;
+
 						to_die.push(demon_item_id);
 						let old_health = health.cur_health;
 						health.cur_health =
@@ -1034,6 +1141,12 @@ impl Map
 					let other_demon_kind =
 						self.world.get::<&comps::DemonKind>(entry.inner.id).unwrap();
 					let new_demon_kind = demon_kind.mate_with(*other_demon_kind);
+					state.sfx.play_positional_sound(
+						"data/birth.ogg",
+						position.pos,
+						self.camera_pos.pos,
+						1.,
+					)?;
 
 					spawn_fns.push(Box::new(move |map, state| {
 						spawn_demon(
@@ -1063,6 +1176,13 @@ impl Map
 			) == tiles::TileKind::Grinder
 				&& solid.on_ground
 			{
+				state.sfx.play_positional_sound(
+					"data/grind.ogg",
+					position.pos,
+					self.camera_pos.pos,
+					1.,
+				)?;
+
 				let amount = 100;
 				self.money += amount;
 				self.money_change_amount = amount;
@@ -1085,6 +1205,21 @@ impl Map
 					if let Ok(mut health) = self.world.get::<&mut comps::Health>(self.player)
 					{
 						health.cur_health -= 10.0;
+						if health.cur_health > 0.
+						{
+							state.sfx.play_positional_sound(
+								"data/pain.ogg",
+								position.pos,
+								self.camera_pos.pos,
+								1.,
+							)?;
+						}
+						state.sfx.play_positional_sound(
+							"data/bite.ogg",
+							position.pos,
+							self.camera_pos.pos,
+							1.,
+						)?;
 						langolier.time_to_bite = state.hs.time() + 0.5;
 					}
 				}
@@ -1096,6 +1231,16 @@ impl Map
 		{
 			if health.cur_health < 0.
 			{
+				if let Some(player_pos) = player_pos
+					&& id == self.player
+				{
+					state.sfx.play_positional_sound(
+						"data/die.ogg",
+						player_pos,
+						self.camera_pos.pos,
+						1.,
+					)?;
+				}
 				to_die.push(id);
 				if let Some((position, _)) = self
 					.world
@@ -1105,6 +1250,19 @@ impl Map
 				{
 					let pos = position.pos;
 					explosions.push(pos);
+					state.sfx.play_positional_sound(
+						"data/explosion.ogg",
+						position.pos,
+						self.camera_pos.pos,
+						1.,
+					)?;
+					state.sfx.play_positional_sound_with_dist(
+						"data/explosion_far.ogg",
+						position.pos,
+						self.camera_pos.pos,
+						10000.,
+						0.75,
+					)?;
 					spawn_fns.push(Box::new(move |map, state| {
 						spawn_explosion(pos, &mut map.world, state)
 					}));
@@ -1146,6 +1304,17 @@ impl Map
 				{
 					let damage = damage_fn(entry.inner.pos);
 					health.cur_health -= damage;
+					if let Some(player_pos) = player_pos
+						&& entry.inner.id == self.player
+						&& health.cur_health > 0.
+					{
+						state.sfx.play_positional_sound(
+							"data/pain.ogg",
+							player_pos,
+							self.camera_pos.pos,
+							1.,
+						)?;
+					}
 					if entry.inner.id == self.player
 					{
 						self.health_change_amount = -damage.ceil() as i32;
@@ -1156,7 +1325,7 @@ impl Map
 		}
 
 		// Tile maintenance.
-		for kill_pos in self.tiles.logic()
+		for kill_pos in self.tiles.logic(state, self.camera_pos.pos)?
 		{
 			let diff = Vector2::new(tiles::TILE_SIZE, tiles::TILE_SIZE);
 			let entries = grid.query_rect(kill_pos, kill_pos + diff, |other| {
@@ -1564,12 +1733,12 @@ impl Map
 
 	fn camera_to_world(&self, pos: Point2<f32>, state: &game_state::GameState) -> Point2<f32>
 	{
-		self.camera_pos.pos.xy() + pos.coords
+		self.camera_pos.pos + pos.coords
 			- Vector2::new(state.hs.buffer_width() / 2., state.hs.buffer_height() / 2.)
 	}
 
 	fn camera_shift(&self, alpha: f32) -> Vector2<f32>
 	{
-		-self.camera_pos.draw_pos(alpha).xy().coords
+		-self.camera_pos.draw_pos(alpha).coords
 	}
 }

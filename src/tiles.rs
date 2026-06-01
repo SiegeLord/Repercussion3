@@ -303,7 +303,9 @@ impl Tiles
 		if res.norm() > 0. { Some(res) } else { None }
 	}
 
-	pub fn logic(&mut self) -> Vec<Point2<f32>>
+	pub fn logic(
+		&mut self, state: &mut game_state::GameState, camera_pos: Point2<f32>,
+	) -> Result<Vec<Point2<f32>>>
 	{
 		let mut kill_pos = vec![];
 		let solid_support = 3;
@@ -479,10 +481,16 @@ impl Tiles
 					self.tiles[tile_idx as usize] = TileKind::Empty;
 					let tile_idx = (y + 1) * self.width + x;
 
-					kill_pos.push(Point2::new(
-						x as f32 * TILE_SIZE,
-						(y + 1) as f32 * TILE_SIZE,
-					));
+					let tile_pos = Point2::new(x as f32 * TILE_SIZE, (y + 1) as f32 * TILE_SIZE);
+
+					state.sfx.play_positional_sound(
+						"data/collapse_1.ogg",
+						tile_pos,
+						camera_pos,
+						1.,
+					)?;
+
+					kill_pos.push(tile_pos);
 					self.tiles[tile_idx as usize] = TileKind::Rock {
 						health,
 						support: 0,
@@ -493,15 +501,33 @@ impl Tiles
 			}
 		}
 
-		for tile in &mut self.tiles
+		for (tile_idx, tile) in self.tiles.iter_mut().enumerate()
 		{
 			let new_tile = match tile
 			{
-				TileKind::Rock { health, height, .. } =>
+				TileKind::Rock {
+					health,
+					height,
+					support,
+					..
+				} =>
 				{
 					if *height > 0.0
 					{
 						*height = utils::max(0.0, *height - 3. * TILE_SIZE * game_state::DT);
+						if *height == 0.0 && *support != 0
+						{
+							let tile_x = tile_idx % self.width as usize;
+							let tile_y = tile_idx / self.width as usize;
+							let tile_pos =
+								Point2::new(tile_x as f32 * TILE_SIZE, tile_y as f32 * TILE_SIZE);
+							state.sfx.play_positional_sound(
+								"data/collapse_2.ogg",
+								tile_pos,
+								camera_pos,
+								1.,
+							)?;
+						}
 					}
 					if *health < 0.0
 					{
@@ -524,7 +550,7 @@ impl Tiles
 				*tile = new_tile;
 			}
 		}
-		kill_pos
+		Ok(kill_pos)
 	}
 
 	pub fn draw(
