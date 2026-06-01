@@ -95,17 +95,31 @@ impl Game
 		}
 		else
 		{
+			let mut pop = false;
 			if let Some(action) = self.subscreens.input(state, event)?
 			{
 				match action
 				{
 					ui::Action::MainMenu =>
 					{
-						self.map.save(state)?;
 						return Ok(Some(game_state::NextScreen::Menu));
+					}
+					ui::Action::QuickSave =>
+					{
+						self.map.save(state)?;
+						pop = true;
+					}
+					ui::Action::QuickLoad =>
+					{
+						self.map.load(state)?;
+						pop = true;
 					}
 					_ => (),
 				}
+			}
+			if pop
+			{
+				self.subscreens.pop();
 			}
 			if self.subscreens.is_empty()
 			{
@@ -408,29 +422,26 @@ impl Map
 	fn logic(&mut self, state: &mut game_state::GameState)
 	-> Result<Option<game_state::NextScreen>>
 	{
-		if self.world.contains(self.player)
+		if state
+			.controls
+			.get_action_state(game_state::Action::QuickSave)
+			> 0.5
 		{
-			if state
-				.controls
-				.get_action_state(game_state::Action::QuickSave)
-				> 0.5
-			{
-				self.save(state)?;
-			}
-			state
-				.controls
-				.clear_action_state(game_state::Action::QuickSave);
-			if state
-				.controls
-				.get_action_state(game_state::Action::QuickLoad)
-				> 0.5
-			{
-				self.load(state)?;
-			}
-			state
-				.controls
-				.clear_action_state(game_state::Action::QuickLoad);
+			self.save(state)?;
 		}
+		state
+			.controls
+			.clear_action_state(game_state::Action::QuickSave);
+		if state
+			.controls
+			.get_action_state(game_state::Action::QuickLoad)
+			> 0.5
+		{
+			self.load(state)?;
+		}
+		state
+			.controls
+			.clear_action_state(game_state::Action::QuickLoad);
 
 		let mut to_die = vec![];
 		let mut spawn_fns: Vec<
@@ -1173,6 +1184,7 @@ impl Map
 						tiles::TileKind::Empty
 						| tiles::TileKind::Torch
 						| tiles::TileKind::Border
+						| tiles::TileKind::Sky
 						| tiles::TileKind::Grinder => (),
 						tiles::TileKind::Support =>
 						{

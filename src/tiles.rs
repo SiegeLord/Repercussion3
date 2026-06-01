@@ -29,6 +29,7 @@ pub enum TileKind
 	Border,
 	Grinder,
 	Jaunter,
+	Sky,
 }
 
 impl TileKind
@@ -56,6 +57,7 @@ impl TileKind
 			TileKind::Support => (6, 0.0),
 			TileKind::Grinder => (7 + ((time * 3.) as i32 % 2), 0.),
 			TileKind::Jaunter => (9 + ((time * 3.) as i32 % 2), 0.),
+			TileKind::Sky => (11, 0.),
 		}
 	}
 
@@ -64,7 +66,7 @@ impl TileKind
 		match self
 		{
 			TileKind::Empty | TileKind::Torch | TileKind::Support | TileKind::Jaunter => false,
-			TileKind::Rock { .. } | TileKind::Border | TileKind::Grinder => true,
+			TileKind::Rock { .. } | TileKind::Border | TileKind::Grinder | TileKind::Sky => true,
 		}
 	}
 }
@@ -120,11 +122,15 @@ impl Tiles
 						*intrinsic_support = over_empty;
 					}
 				}
+				let tile_idx = y * width + x;
 
 				if x == 0 || x == width - 1 || y == 0 || y == height - 1
 				{
-					let tile_idx = y * width + x;
 					tiles[tile_idx as usize] = TileKind::Border;
+				}
+				if y < 3
+				{
+					tiles[tile_idx as usize] = TileKind::Sky;
 				}
 			}
 		}
@@ -549,6 +555,7 @@ impl Tiles
 				| TileKind::Support
 				| TileKind::Border
 				| TileKind::Grinder
+				| TileKind::Sky
 				| TileKind::Jaunter => None,
 			};
 			if let Some(new_tile) = new_tile
