@@ -28,6 +28,9 @@ impl Game
 {
 	pub fn new(state: &mut game_state::GameState) -> Result<Self>
 	{
+		state
+			.sfx
+			.play_music("data/Repercussion3_1.ogg", 1.0, &state.hs.core);
 		Ok(Self {
 			map: Map::new(state)?,
 			subscreens: ui::SubScreens::new(state),

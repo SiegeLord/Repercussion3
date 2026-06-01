@@ -26,6 +26,9 @@ impl Menu
 		state.hs.hide_mouse = false;
 		state.sfx.cache_sample("data/ui1.ogg")?;
 		state.sfx.cache_sample("data/ui2.ogg")?;
+		state
+			.sfx
+			.play_music("data/Repercussion3_2.ogg", 1.0, &state.hs.core);
 
 		let mut subscreens = ui::SubScreens::new(state);
 		subscreens.push(ui::SubScreen::MainMenu(ui::MainMenu::new(state)?));

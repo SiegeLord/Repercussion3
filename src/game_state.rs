@@ -190,8 +190,6 @@ impl GameState
 			hack_state::HackState::new("Repercussion 3", hack_load_options, Some((640, 360)))?;
 
 		let sfx = sfx::Sfx::new(options.sfx_volume, options.music_volume, &hack_state.core)?;
-		//sfx.set_music_file("data/lemonade-sinus.xm");
-		//sfx.play_music()?;
 
 		let controls = controls::ControlsHandler::new(options.controls.clone(), 1.);
 		Ok(Self {
