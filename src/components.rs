@@ -103,6 +103,7 @@ pub enum SolidKind
 {
 	Player,
 	Demon,
+	Enemy,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -256,6 +257,10 @@ impl Mover
 pub enum AIState
 {
 	Idle,
+	Move
+	{
+		dir: f32,
+	},
 	Jump
 	{
 		dir: f32,
@@ -267,6 +272,7 @@ pub struct AI
 {
 	pub time_to_decide: f64,
 	pub state: AIState,
+	pub enemy: bool,
 }
 
 impl AI
@@ -276,6 +282,16 @@ impl AI
 		Self {
 			time_to_decide: 0.,
 			state: AIState::Idle,
+			enemy: false,
+		}
+	}
+
+	pub fn new_enemy() -> Self
+	{
+		Self {
+			time_to_decide: 0.,
+			state: AIState::Idle,
+			enemy: true,
 		}
 	}
 }
@@ -317,3 +333,17 @@ impl Climber
 
 #[derive(Debug, Clone)]
 pub struct Explodes;
+
+#[derive(Debug, Clone)]
+pub struct Langolier
+{
+	pub time_to_bite: f64,
+}
+
+impl Langolier
+{
+	pub fn new() -> Self
+	{
+		Self { time_to_bite: 0. }
+	}
+}

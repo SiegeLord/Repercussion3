@@ -152,6 +152,30 @@ fn spawn_player(
 	Ok(entity)
 }
 
+fn spawn_langolier(
+	pos: Point2<f32>, world: &mut hecs::World, state: &mut game_state::GameState,
+) -> Result<hecs::Entity>
+{
+	let sprite_name = "data/langolier.cfg";
+	state.cache_sprite(sprite_name)?;
+
+	let entity = world.spawn((
+		comps::Position::new(pos),
+		comps::Acceleration::new(),
+		comps::Velocity::new(),
+		comps::Appearance::new(sprite_name),
+		comps::Solid::new(24., comps::SolidKind::Enemy),
+		comps::Gravity,
+		comps::Light::new(Color::from_rgba(0, 0, 0, 6), 0.),
+		comps::Mover::new(),
+		comps::Health::new(100.),
+		comps::AI::new_enemy(),
+		comps::Langolier::new(),
+	));
+
+	Ok(entity)
+}
+
 fn spawn_demon(
 	kind: comps::DemonKind, pos: Point2<f32>, pos_vel: Vector2<f32>, world: &mut hecs::World,
 	state: &mut game_state::GameState,
@@ -278,6 +302,9 @@ impl Map
 			state,
 		)?;
 
+		let pos = Point2::new(tiles::TILE_SIZE * 4., tiles::TILE_SIZE * 10.);
+		spawn_langolier(pos, &mut world, state)?;
+
 		Ok(Self {
 			world: world,
 			tiles: tiles::Tiles::new(16, 16)?,
@@ -316,6 +343,7 @@ impl Map
 		}
 
 		// Player input.
+		let mut player_pos = None;
 		if let Ok((drill, position, mover, demon_holder)) = self.world.query_one_mut::<(
 			&mut comps::Drill,
 			&comps::Position,
@@ -323,6 +351,7 @@ impl Map
 			&mut comps::DemonHolder,
 		)>(self.player)
 		{
+			player_pos = Some(position.pos);
 			mover.want_move_left = state
 				.controls
 				.get_action_state(game_state::Action::MoveLeft);
@@ -438,27 +467,57 @@ impl Map
 			}
 			state
 				.controls
-				.clear_action_state(game_state::Action::PlaceTorch);
+				.clear_action_state(game_state::Action::PlaceJaunter);
 		}
 
 		// AI.
-		for (_id, (ai, mover)) in self
+		for (_id, (ai, position, mover)) in self
 			.world
-			.query::<(&mut comps::AI, &mut comps::Mover)>()
+			.query::<(&mut comps::AI, &comps::Position, &mut comps::Mover)>()
 			.iter()
 		{
 			let next_state_and_duration = if state.hs.time() > ai.time_to_decide
 			{
-				let next_states_and_weights = [
-					(comps::AIState::Idle, rng.gen_range(1.0..2.0), 10.0),
-					(
-						comps::AIState::Jump {
-							dir: rng.gen_range(-1.0..1.0),
-						},
-						0.5,
-						3.0,
-					),
-				];
+				let next_states_and_weights = if ai.enemy
+				{
+					let mut dir = rng.gen_range(-1.0..1.0);
+					let mut pursue_weight = 3.0;
+					if let Some(player_pos) = player_pos
+					{
+						let pos = position.pos;
+						if (player_pos - pos).norm() < tiles::TILE_SIZE * 6.0
+						{
+							dir = (player_pos.x - pos.x).signum();
+							pursue_weight = 100.;
+						}
+					}
+
+					[
+						(comps::AIState::Idle, rng.gen_range(1.0..2.0), 10.0),
+						(comps::AIState::Jump { dir: dir }, 0.25, pursue_weight),
+						(comps::AIState::Move { dir: dir }, 0.25, 2. * pursue_weight),
+					]
+				}
+				else
+				{
+					[
+						(comps::AIState::Idle, rng.gen_range(1.0..2.0), 10.0),
+						(
+							comps::AIState::Jump {
+								dir: rng.gen_range(-1.0..1.0),
+							},
+							0.5,
+							3.0,
+						),
+						(
+							comps::AIState::Move {
+								dir: rng.gen_range(-1.0..1.0),
+							},
+							0.5,
+							2.0,
+						),
+					]
+				};
 				next_states_and_weights
 					.choose_weighted(&mut rng, |(_, _, weight)| *weight)
 					.ok()
@@ -486,6 +545,12 @@ impl Map
 				comps::AIState::Jump { dir } =>
 				{
 					mover.want_jump = true;
+					mover.want_move_left = -dir.min(0.);
+					mover.want_move_right = dir.max(0.);
+				}
+				comps::AIState::Move { dir } =>
+				{
+					mover.want_jump = false;
 					mover.want_move_left = -dir.min(0.);
 					mover.want_move_right = dir.max(0.);
 				}
@@ -1003,6 +1068,26 @@ impl Map
 			}
 		}
 
+		// Langolier.
+		for (_, (position, langolier)) in self
+			.world
+			.query::<(&comps::Position, &mut comps::Langolier)>()
+			.iter()
+		{
+			if let Some(player_pos) = player_pos
+			{
+				if (player_pos - position.pos).norm() < 16.
+					&& state.hs.time() > langolier.time_to_bite
+				{
+					if let Ok(mut health) = self.world.get::<&mut comps::Health>(self.player)
+					{
+						health.cur_health -= 10.0;
+						langolier.time_to_bite = state.hs.time() + 0.5;
+					}
+				}
+			}
+		}
+
 		// Health
 		for (id, health) in self.world.query::<&comps::Health>().iter()
 		{
@@ -1032,11 +1117,16 @@ impl Map
 				50. * f
 			};
 			self.tiles
-				.get_tiles_in_radius(pos, 64., |tile_pos, tile_kind| {
-					if let tiles::TileKind::Rock { health, .. } = tile_kind
+				.get_tiles_in_radius(pos, 64., |tile_pos, tile_kind| match tile_kind
+				{
+					tiles::TileKind::Rock { health, .. } =>
 					{
 						*health -= damage_fn(tile_pos);
 					}
+					tiles::TileKind::Torch
+					| tiles::TileKind::Support
+					| tiles::TileKind::Jaunter => *tile_kind = tiles::TileKind::Empty,
+					_ => (),
 				});
 
 			let r = 64.;
