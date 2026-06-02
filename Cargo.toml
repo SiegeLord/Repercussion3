@@ -1,13 +1,13 @@
 [package]
 name = "Repercussion3"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 license = "GPL-3.0-only"
 authors = ["SiegeLord <slabode@aim.com>"]
 
 [dependencies]
 
-slhack = { path = "/home/siege/Projects/HackInit/slhack" }
+slhack = { git = "https://github.com/SiegeLord/HackInit.git", version = "0.5" }
 
 allegro-sys = { version="0.0.51" }
 allegro = { version="0.0.51", features = ["unstable"] }

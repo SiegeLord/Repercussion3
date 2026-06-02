@@ -242,6 +242,24 @@ impl DemonKind
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Demon
+{
+	pub kind: DemonKind,
+	pub picked_up: bool,
+}
+
+impl Demon
+{
+	pub fn new(kind: DemonKind, picked_up: bool) -> Self
+	{
+		Self {
+			kind: kind,
+			picked_up: picked_up,
+		}
+	}
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Drill
 {
 	pub want_left: bool,
@@ -444,7 +462,7 @@ serialize_components! {
 		Appearance,
 		Gravity,
 		DemonHolder,
-		DemonKind,
+		Demon,
 		Drill,
 		Mover,
 		AI,

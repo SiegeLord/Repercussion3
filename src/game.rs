@@ -18,7 +18,7 @@ const PICKUP_RADIUS: f32 = 16.0;
 const DRILL_RADIUS: f32 = 18.0;
 const TORCH_COST: i32 = 20;
 const SUPPORT_COST: i32 = 10;
-const JAUNTER_COST: i32 = 30;
+const JAUNTER_COST: i32 = 50;
 
 pub struct Game
 {
@@ -202,8 +202,8 @@ fn spawn_langolier(
 }
 
 fn spawn_demon(
-	kind: comps::DemonKind, pos: Point2<f32>, pos_vel: Vector2<f32>, world: &mut hecs::World,
-	state: &mut game_state::GameState,
+	kind: comps::DemonKind, picked_up: bool, pos: Point2<f32>, pos_vel: Vector2<f32>,
+	world: &mut hecs::World, state: &mut game_state::GameState,
 ) -> Result<hecs::Entity>
 {
 	let sprite_name = "data/demon1.cfg";
@@ -221,7 +221,7 @@ fn spawn_demon(
 		comps::Mover::new(),
 		comps::Health::new(50.),
 		comps::Explodes,
-		kind,
+		comps::Demon::new(kind, picked_up),
 	));
 
 	Ok(entity)
@@ -321,6 +321,7 @@ enum MessageId
 	Langolier,
 	Surface1,
 	Surface2,
+	Breed,
 }
 
 #[derive(Clone)]
@@ -328,6 +329,7 @@ struct Message
 {
 	lines: Vec<String>,
 	time_to_hide: f64,
+	talk2: bool,
 }
 
 impl Message
@@ -337,7 +339,14 @@ impl Message
 		Self {
 			lines: lines.iter().map(|s| s.to_string()).collect(),
 			time_to_hide: 0.,
+			talk2: false,
 		}
+	}
+
+	fn with_talk2(mut self) -> Self
+	{
+		self.talk2 = true;
+		self
 	}
 
 	fn show(&self, time: f64) -> Self
@@ -345,6 +354,7 @@ impl Message
 		Message {
 			lines: self.lines.clone(),
 			time_to_hide: time + 7.,
+			talk2: self.talk2,
 		}
 	}
 }
@@ -391,8 +401,9 @@ impl Map
 		state.cache_sprite("data/shadow_tiles.cfg")?;
 		state.cache_bitmap("data/circle.png")?;
 		state.cache_sprite("data/talk1.cfg")?;
+		state.cache_sprite("data/talk2.cfg")?;
 
-		let tiles = tiles::Tiles::new(256, 256)?;
+		let tiles = tiles::Tiles::new(64, 64)?;
 		let start_pos = tiles.start_pos;
 		let player = spawn_player(tiles.start_pos, &mut world, state)?;
 		let mut rng = rand::thread_rng();
@@ -413,44 +424,13 @@ impl Map
 				.choose(&mut rng)
 				.unwrap()
 			};
-			spawn_demon(kind, *demon_pos, Vector2::zeros(), &mut world, state)?;
+			spawn_demon(kind, false, *demon_pos, Vector2::zeros(), &mut world, state)?;
 		}
 
 		for pos in &tiles.langoliers
 		{
 			spawn_langolier(*pos, &mut world, state)?;
 		}
-
-		//let pos = Point2::new(tiles::TILE_SIZE * 12., tiles::TILE_SIZE * 10.);
-		//spawn_demon(
-		//	comps::DemonKind::Demon1,
-		//	pos,
-		//	Vector2::zeros(),
-		//	&mut world,
-		//	state,
-		//)?;
-
-		//let pos = Point2::new(tiles::TILE_SIZE * 8., tiles::TILE_SIZE * 10.);
-		//spawn_demon(
-		//	comps::DemonKind::Demon2,
-		//	pos,
-		//	Vector2::zeros(),
-		//	&mut world,
-		//	state,
-		//)?;
-
-		//let pos = Point2::new(tiles::TILE_SIZE * 14., tiles::TILE_SIZE * 10.);
-		//spawn_demon(
-		//	comps::DemonKind::Demon3,
-		//	pos,
-		//	Vector2::zeros(),
-		//	&mut world,
-		//	state,
-		//)?;
-
-		//let pos = Point2::new(tiles::TILE_SIZE * 4., tiles::TILE_SIZE * 10.);
-		//spawn_langolier(pos, &mut world, state)?;
-		//spawn_langolier(pos, &mut world, state)?;
 
 		let drill_sound = state.sfx.play_continuous_sound("data/drill.ogg", 1.)?;
 		drill_sound.set_gain(0.0).ok();
@@ -485,7 +465,7 @@ impl Map
 		self.messages.insert(
 			MessageId::Start,
 			Message::new(&[
-				"Where am I? It is dark here. I should explore.",
+				"Where am I?  It is dark here.  I should explore.",
 				&format!(
 					"Left: {}  Right: {}",
 					state
@@ -509,15 +489,15 @@ impl Map
 
 		self.messages.insert(
 			MessageId::Grinder,
-			Message::new(&["A grinder... I can feed it valuable items for money."]),
+			Message::new(&["A grinder.  I can feed it valuable items for money."]),
 		);
 
 		self.messages.insert(
 			MessageId::Demon,
 			Message::new(&[
-				"That demon looks valuable... and delicious",
+				"That demon looks valuable... and delicious.  I can drill to it.",
 				&format!(
-					"I can drill to it.  Drill L/R: {} {}",
+					"Drill L/R: {} {}",
 					state
 						.options
 						.controls
@@ -551,6 +531,11 @@ impl Map
 			)]),
 		);
 		self.messages.insert(
+			MessageId::Breed,
+			Message::new(&[&format!("I wonder if I can breed these.")]),
+		);
+
+		self.messages.insert(
 			MessageId::Build,
 			Message::new(&[
 				"With this money I can build, and climb to the surface.",
@@ -576,15 +561,15 @@ impl Map
 		);
 		self.messages.insert(
 			MessageId::Langolier,
-			Message::new(&["A langolier? Here? I must get avoid it..."]),
+			Message::new(&["A langolier? Here?  I must avoid it..."]),
 		);
 		self.messages.insert(
 			MessageId::Surface1,
-			Message::new(&["Surface, at last... I am tired of these demons"]),
+			Message::new(&["Surface, at last...  I am tired of these demons"]),
 		);
 		self.messages.insert(
 			MessageId::Surface2,
-			Message::new(&["No, Jeanne, you are the demons"]),
+			Message::new(&["No, Jeanne, you are the demons"]).with_talk2(),
 		);
 	}
 
@@ -647,6 +632,9 @@ impl Map
 			> 0.5
 		{
 			self.save(state)?;
+			self.message_queue.clear();
+			self.message_queue
+				.push(Message::new(&["Saving."]).show(state.hs.time() - 3.))
 		}
 		state
 			.controls
@@ -657,6 +645,9 @@ impl Map
 			> 0.5
 		{
 			self.load(state)?;
+			self.message_queue.clear();
+			self.message_queue
+				.push(Message::new(&["Loading."]).show(state.hs.time() - 3.))
 		}
 		state
 			.controls
@@ -843,23 +834,36 @@ impl Map
 			{
 				show_message!(self, state, MessageId::Grab);
 			}
-			if player_pos.y / tiles::TILE_SIZE < 11.0
+			if (player_pos.x - self.tiles.start_pos.x) / tiles::TILE_SIZE > 22.
 			{
+				show_message!(self, state, MessageId::Breed);
+			}
+			if player_pos.y / tiles::TILE_SIZE < 11.0
+				&& !self.shown_message_ids.contains(&MessageId::Surface1)
+			{
+				self.shown_message_ids.push(MessageId::Surface1);
 				self.message_queue
-					.push(self.messages[&MessageId::Surface1].show(state.hs.time()));
+					.push(self.messages[&MessageId::Surface1].show(state.hs.time() - 2.));
 				self.message_queue
-					.push(self.messages[&MessageId::Surface2].show(state.hs.time() + 14.));
-				self.end_time = Some(state.hs.time() + 14.);
+					.push(self.messages[&MessageId::Surface2].show(state.hs.time()));
+				self.end_time = Some(state.hs.time() + 7.);
 			}
 			if let Some(end_time) = self.end_time
 				&& state.hs.time() > end_time
 			{
 				spawn_demon(
 					comps::DemonKind::Demon1,
+					false,
 					player_pos,
 					Vector2::zeros(),
 					&mut self.world,
 					state,
+				)?;
+				state.sfx.play_positional_sound(
+					"data/die.ogg",
+					player_pos,
+					self.camera_pos.pos,
+					1.,
 				)?;
 				to_die.push(self.player);
 			}
@@ -1008,18 +1012,6 @@ impl Map
 					drill.want_left || drill.want_right || drill.want_down || drill.want_up
 				})
 				.unwrap_or(false);
-
-			if id == self.player
-			{
-				if want_drill
-				{
-					self.drill_sound.set_gain(1.0).ok();
-				}
-				else
-				{
-					self.drill_sound.set_gain(0.).ok();
-				}
-			}
 
 			let control = if solid.on_ground { 1. } else { 0.5 };
 			let mut can_move = !want_drill;
@@ -1330,10 +1322,11 @@ impl Map
 			}
 			if let Some((pickup_demon_id, item_pos)) = pickup_demon
 			{
-				let demon_kind = *self
+				let demon_kind = self
 					.world
-					.get::<&comps::DemonKind>(pickup_demon_id)
-					.unwrap();
+					.get::<&comps::Demon>(pickup_demon_id)
+					.unwrap()
+					.kind;
 				let item = spawn_demon_item(demon_kind, item_pos, &mut self.world, state)?;
 				let mut demon_holder = self
 					.world
@@ -1347,6 +1340,7 @@ impl Map
 				let demon_kind = *self.world.get::<&comps::DemonKind>(demon_item_id).unwrap();
 				spawn_demon(
 					demon_kind,
+					true,
 					pos + Vector2::new(r * sign, -8.),
 					pos_vel + Vector2::new(64. * sign, -64.),
 					&mut self.world,
@@ -1397,6 +1391,10 @@ impl Map
 				.map(|demon_holder| demon_holder.demon.is_some())
 				.unwrap_or(false)
 			{
+				if id == self.player
+				{
+					self.drill_sound.set_gain(0.).ok();
+				}
 				continue;
 			}
 			let drill_dir = if drill.want_left
@@ -1417,11 +1415,19 @@ impl Map
 			}
 			else
 			{
+				if id == self.player
+				{
+					self.drill_sound.set_gain(0.).ok();
+				}
 				None
 			};
 
 			if let Some(drill_dir) = drill_dir
 			{
+				if id == self.player
+				{
+					self.drill_sound.set_gain(1.0).ok();
+				}
 				// XXX: I don't fully understand why the half tile shift is needed, the position
 				// should be in the center of the sprite, and the tiles should have (0, 0) as their
 				// top left corner.
@@ -1464,17 +1470,21 @@ impl Map
 		let mut explosions = vec![];
 
 		// Demon breeding.
-		for (id, (position, solid, health, demon_kind)) in self
+		for (id, (position, solid, health, demon)) in self
 			.world
 			.query::<(
 				&comps::Position,
 				&comps::Solid,
 				&mut comps::Health,
-				&comps::DemonKind,
+				&comps::Demon,
 			)>()
 			.iter()
 		{
 			if !rng.gen_bool(1e-3)
+			{
+				continue;
+			}
+			if !demon.picked_up
 			{
 				continue;
 			}
@@ -1507,9 +1517,12 @@ impl Map
 				}
 				else
 				{
-					let other_demon_kind =
-						self.world.get::<&comps::DemonKind>(entry.inner.id).unwrap();
-					let new_demon_kind = demon_kind.mate_with(*other_demon_kind);
+					let other_demon_kind = self
+						.world
+						.get::<&comps::Demon>(entry.inner.id)
+						.unwrap()
+						.kind;
+					let new_demon_kind = demon.kind.mate_with(other_demon_kind);
 					state.sfx.play_positional_sound(
 						"data/birth.ogg",
 						position.pos,
@@ -1520,6 +1533,7 @@ impl Map
 					spawn_fns.push(Box::new(move |map, state| {
 						spawn_demon(
 							new_demon_kind,
+							true,
 							pos,
 							Vector2::new(0., -512.),
 							&mut map.world,
@@ -1531,9 +1545,9 @@ impl Map
 		}
 
 		// Grinder.
-		for (id, (demon_kind, position, solid)) in self
+		for (id, (demon, position, solid)) in self
 			.world
-			.query::<(&comps::DemonKind, &comps::Position, &comps::Solid)>()
+			.query::<(&comps::Demon, &comps::Position, &comps::Solid)>()
 			.iter()
 		{
 			if self.tiles.get_tile_kind(
@@ -1553,7 +1567,7 @@ impl Map
 					1.,
 				)?;
 
-				let amount = demon_kind.get_amount();
+				let amount = demon.kind.get_amount();
 				self.money += amount;
 				self.money_change_amount = amount;
 				self.money_change_time = state.hs.time();
@@ -2024,7 +2038,18 @@ impl Map
 		{
 			if state.hs.time() < message.time_to_hide
 			{
-				let sprite = state.get_sprite("data/talk1.cfg").unwrap();
+				let sprite = state
+					.get_sprite(
+						if message.talk2
+						{
+							"data/talk2.cfg"
+						}
+						else
+						{
+							"data/talk1.cfg"
+						},
+					)
+					.unwrap();
 				sprite.draw_frame(
 					Point2::new(state.hs.buffer_width() / 2., state.hs.buffer_height() - 64.),
 					"Default",

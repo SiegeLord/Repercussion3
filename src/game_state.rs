@@ -64,11 +64,11 @@ slhack::actions! {
 		DrillUp = [Some(controls::Input::Keyboard(KeyCode::W)), Some(controls::Input::JoystickNegAxis(JoystickStick::RightThumb, 1))],
 		DrillDown = [Some(controls::Input::Keyboard(KeyCode::S)), Some(controls::Input::JoystickPosAxis(JoystickStick::RightThumb, 1))],
 		EatDemon = [Some(controls::Input::Keyboard(KeyCode::E)), Some(controls::Input::JoystickButton(JoystickButton::X))],
-		PlaceTorch = [Some(controls::Input::Keyboard(KeyCode::T)), Some(controls::Input::JoystickNegAxis(JoystickStick::DPad, 0))],
-		PlaceSupport = [Some(controls::Input::Keyboard(KeyCode::G)), Some(controls::Input::JoystickPosAxis(JoystickStick::DPad, 0))],
-		PlaceJaunter = [Some(controls::Input::Keyboard(KeyCode::J)), Some(controls::Input::JoystickPosAxis(JoystickStick::DPad, 1))],
-		QuickSave = [Some(controls::Input::Keyboard(KeyCode::F5)), Some(controls::Input::JoystickButton(JoystickButton::LeftShoulder))],
-		QuickLoad = [Some(controls::Input::Keyboard(KeyCode::F9)), Some(controls::Input::JoystickButton(JoystickButton::RightShoulder))],
+		PlaceTorch = [Some(controls::Input::Keyboard(KeyCode::T)), Some(controls::Input::JoystickButton(JoystickButton::LeftShoulder))],
+		PlaceSupport = [Some(controls::Input::Keyboard(KeyCode::G)), Some(controls::Input::JoystickButton(JoystickButton::RightShoulder))],
+		PlaceJaunter = [Some(controls::Input::Keyboard(KeyCode::J)), Some(controls::Input::JoystickButton(JoystickButton::Y))],
+		QuickSave = [Some(controls::Input::Keyboard(KeyCode::F5)), Some(controls::Input::JoystickPosAxis(JoystickStick::LeftTrigger, 0))],
+		QuickLoad = [Some(controls::Input::Keyboard(KeyCode::F9)), Some(controls::Input::JoystickPosAxis(JoystickStick::RightTrigger, 0))],
 	}
 }
 
@@ -92,7 +92,7 @@ impl Default for Options
 		Self {
 			version: VERSION.to_string(),
 			gfx: hack_state::GfxOptions {
-				fullscreen: false,
+				fullscreen: true,
 				width: 640 * 2,
 				height: 360 * 2,
 				vsync_method: if cfg!(target_os = "windows") { 1 } else { 2 },

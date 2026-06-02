@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Repercussion3"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "allegro",
  "allegro-sys",
@@ -929,7 +929,8 @@ checksum = "238abfbb77c1915110ad968465608b68e869e0772622c9656714e73e5a1a522f"
 
 [[package]]
 name = "slhack"
-version = "0.4.0"
+version = "0.5.0"
+source = "git+https://github.com/SiegeLord/HackInit.git#ccb6503b071b9fd88ed8bcf5f5fdfdfadb28fc18"
 dependencies = [
  "allegro",
  "allegro-sys",

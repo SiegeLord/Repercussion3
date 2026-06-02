@@ -644,47 +644,28 @@ pub struct SubScreens
 {
 	pub subscreens: Vec<SubScreen>,
 	pub action: Option<Action>,
-	pub time_to_transition: f64,
 }
 
 const TRANSITION_TIME: f64 = 0.25;
 
 impl SubScreens
 {
-	pub fn new(state: &game_state::GameState) -> Self
+	pub fn new(_state: &game_state::GameState) -> Self
 	{
 		Self {
 			subscreens: vec![],
 			action: None,
-			time_to_transition: state.hs.core.get_time(),
 		}
 	}
 
-	pub fn reset_transition(&mut self, state: &game_state::GameState)
-	{
-		self.time_to_transition = state.hs.core.get_time();
-	}
+	pub fn reset_transition(&mut self, _state: &game_state::GameState) {}
 
 	pub fn draw(&self, state: &game_state::GameState)
 	{
-		let time = state.hs.core.get_time();
-		let f = if self.time_to_transition > time
-		{
-			-1. + (self.time_to_transition - time) / TRANSITION_TIME
-		}
-		else
-		{
-			(1. - (time - self.time_to_transition) / TRANSITION_TIME).max(0.)
-		};
-		let f = f as f32;
-		let mut transform = Transform::identity();
-		transform.translate(0., state.hs.buffer_height() * f);
-		state.hs.core.use_transform(&transform);
 		if let Some(subscreen) = self.subscreens.last()
 		{
 			subscreen.draw(state);
 		}
-		state.hs.core.use_transform(&Transform::identity());
 	}
 
 	pub fn input(
@@ -694,23 +675,8 @@ impl SubScreens
 		if self.action.is_none()
 		{
 			self.action = self.subscreens.last_mut().unwrap().input(state, event);
-			let is_change_input = if let Some(Action::ChangeInput(_, _)) = self.action
-			{
-				true
-			}
-			else
-			{
-				false
-			};
-			if self.action.is_some() && self.action != Some(Action::SelectMe) && !is_change_input
-			{
-				self.time_to_transition = state.hs.core.get_time() + TRANSITION_TIME;
-			}
 		}
-		if let (Some(action), true) = (
-			self.action.clone(),
-			state.hs.core.get_time() > self.time_to_transition,
-		)
+		if let Some(action) = self.action.clone()
 		{
 			self.action = None;
 			match action

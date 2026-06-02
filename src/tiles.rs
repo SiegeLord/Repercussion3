@@ -1,9 +1,9 @@
 use crate::error::Result;
 use crate::{draw_batch, game_state};
 use nalgebra::{Point2, Point3, Vector2};
+use rand::prelude::*;
 use serde_derive::{Deserialize, Serialize};
 use slhack::utils;
-use rand::prelude::*;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -99,8 +99,8 @@ impl Tiles
 			(width * height) as usize
 		];
 
-		let start_x = rng.gen_range(50..width - 50);
-		let start_y = rng.gen_range(height - 20..height - 10);
+		let start_x = rng.gen_range(5..width - 30);
+		let start_y = rng.gen_range(height - 10..height - 5);
 		let mut demons = vec![];
 		let mut langoliers = vec![];
 
@@ -117,34 +117,55 @@ impl Tiles
 		let tile_idx = start_y * width + start_x + 18;
 		tiles[tile_idx as usize] = TileKind::Grinder;
 
-		let tile_idx = (start_y - 1) * width + start_x + 22;
+		let tile_idx = start_y * width + start_x + 22;
 		tiles[tile_idx as usize] = TileKind::Empty;
 
-		demons.push(Point2::new((start_x + 22) as f32 * TILE_SIZE, (start_y - 1) as f32 * TILE_SIZE));
+		demons.push(Point2::new(
+			(start_x + 22) as f32 * TILE_SIZE,
+			start_y as f32 * TILE_SIZE,
+		));
 
-		let start_pos = Point2::new((start_x + 1) as f32 * TILE_SIZE, (start_y - 1) as f32 * TILE_SIZE);
+		let tile_idx = start_y * width + start_x + 24;
+		tiles[tile_idx as usize] = TileKind::Empty;
+		demons.push(Point2::new(
+			(start_x + 24) as f32 * TILE_SIZE,
+			start_y as f32 * TILE_SIZE,
+		));
 
-		for _ in 0..600
+		let tile_idx = (start_y - 2) * width + start_x + 24;
+		tiles[tile_idx as usize] = TileKind::Empty;
+		demons.push(Point2::new(
+			(start_x + 24) as f32 * TILE_SIZE,
+			(start_y - 2) as f32 * TILE_SIZE,
+		));
+
+		let start_pos = Point2::new(
+			(start_x + 1) as f32 * TILE_SIZE,
+			(start_y - 1) as f32 * TILE_SIZE,
+		);
+
+		for _ in 0..150
 		{
 			loop
 			{
-				let x = rng.gen_range(0..width);
-				let y = rng.gen_range(0..height);
+				let x = rng.gen_range(6..width - 6);
+				let y = rng.gen_range(4..height - 5);
 				if (start_y - y).abs() < 7
 				{
 					continue;
 				}
-				for xx in x - rng.gen_range(2..5)..x + rng.gen_range(2..5)
+				for xx in x - rng.gen_range(2..3)..x + rng.gen_range(2..3)
 				{
-					for yy in y - rng.gen_range(1..3)..y + rng.gen_range(1..3)
+					for yy in y - rng.gen_range(1..2)..y + rng.gen_range(1..2)
 					{
-						let tile_idx = utils::clamp(yy, 0, height - 1) * width + utils::clamp(xx, 0, width - 1);
+						let tile_idx = utils::clamp(yy, 0, height - 1) * width
+							+ utils::clamp(xx, 0, width - 1);
 						tiles[tile_idx as usize] = TileKind::Empty;
 					}
 				}
 				let pos = Point2::new(x as f32 * TILE_SIZE, (y - 1) as f32 * TILE_SIZE);
 
-				if rng.gen_bool(0.5)
+				if rng.gen_bool(0.25)
 				{
 					langoliers.push(pos);
 				}
