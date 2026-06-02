@@ -16,13 +16,13 @@ pub const SELECTED: Color = Color::from_rgb_f(1., 1., 1.);
 pub const HORIZ_SPACE: f32 = 16.;
 pub const VERT_SPACE: f32 = 16.;
 
-const THEME: ui::Theme = ui::Theme {
-	unselected: Color::from_rgb_f(0.9, 0.9, 0.4),
+pub const THEME: ui::Theme = ui::Theme {
+	unselected: Color::from_rgb_f(0.5, 0.9, 0.9),
 	label: Color::from_rgb_f(0.7 * 0.9, 0.7 * 0.9, 0.7 * 0.9),
 	selected: Color::from_rgb_f(1., 1., 1.),
 
 	horiz_space: 16.,
-	vert_space: 16.,
+	vert_space: 2.,
 };
 
 pub const BUTTON_WIDTH: f32 = 128.;

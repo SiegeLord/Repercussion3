@@ -305,6 +305,62 @@ struct Save
 	camera_pos: comps::Position,
 	#[serde(with = "world_serialize")]
 	world: hecs::World,
+	shown_message_ids: Vec<MessageId>,
+	start_time: f64,
+	end_time: Option<f64>,
+}
+
+#[derive(Eq, PartialEq, Hash, Serialize, Deserialize, Copy, Clone)]
+enum MessageId
+{
+	Start,
+	Grinder,
+	Demon,
+	Grab,
+	Build,
+	Langolier,
+	Surface1,
+	Surface2,
+}
+
+#[derive(Clone)]
+struct Message
+{
+	lines: Vec<String>,
+	time_to_hide: f64,
+}
+
+impl Message
+{
+	fn new(lines: &[&str]) -> Self
+	{
+		Self {
+			lines: lines.iter().map(|s| s.to_string()).collect(),
+			time_to_hide: 0.,
+		}
+	}
+
+	fn show(&self, time: f64) -> Self
+	{
+		Message {
+			lines: self.lines.clone(),
+			time_to_hide: time + 7.,
+		}
+	}
+}
+
+macro_rules! show_message {
+	($_self:expr, $state:expr, $message_id:path) => {
+		if !$_self.shown_message_ids.contains(&$message_id)
+		{
+			$_self.shown_message_ids.push($message_id);
+			$_self.message_queue.clear();
+			$_self
+				.message_queue
+				.push($_self.messages[&$message_id].show($state.hs.time()));
+			$state.sfx.play_exclusive_sound("data/hmm.ogg")?;
+		}
+	};
 }
 
 struct Map
@@ -319,6 +375,11 @@ struct Map
 	health_change_amount: i32,
 	health_change_time: f64,
 	drill_sound: SampleInstance,
+	messages: HashMap<MessageId, Message>,
+	message_queue: Vec<Message>,
+	shown_message_ids: Vec<MessageId>,
+	start_time: f64,
+	end_time: Option<f64>,
 }
 
 impl Map
@@ -329,56 +390,202 @@ impl Map
 		state.cache_sprite("data/tiles.cfg")?;
 		state.cache_sprite("data/shadow_tiles.cfg")?;
 		state.cache_bitmap("data/circle.png")?;
+		state.cache_sprite("data/talk1.cfg")?;
 
-		let pos = Point2::new(tiles::TILE_SIZE * 10., tiles::TILE_SIZE * 10.);
-		let player = spawn_player(pos, &mut world, state)?;
+		let tiles = tiles::Tiles::new(256, 256)?;
+		let start_pos = tiles.start_pos;
+		let player = spawn_player(tiles.start_pos, &mut world, state)?;
+		let mut rng = rand::thread_rng();
 
-		let pos = Point2::new(tiles::TILE_SIZE * 12., tiles::TILE_SIZE * 10.);
-		spawn_demon(
-			comps::DemonKind::Demon1,
-			pos,
-			Vector2::zeros(),
-			&mut world,
-			state,
-		)?;
+		for (idx, demon_pos) in tiles.demons.iter().enumerate()
+		{
+			let kind = if idx == 0
+			{
+				comps::DemonKind::Demon2
+			}
+			else
+			{
+				*[
+					comps::DemonKind::Demon1,
+					comps::DemonKind::Demon2,
+					comps::DemonKind::Demon3,
+				]
+				.choose(&mut rng)
+				.unwrap()
+			};
+			spawn_demon(kind, *demon_pos, Vector2::zeros(), &mut world, state)?;
+		}
 
-		let pos = Point2::new(tiles::TILE_SIZE * 8., tiles::TILE_SIZE * 10.);
-		spawn_demon(
-			comps::DemonKind::Demon2,
-			pos,
-			Vector2::zeros(),
-			&mut world,
-			state,
-		)?;
+		for pos in &tiles.langoliers
+		{
+			spawn_langolier(*pos, &mut world, state)?;
+		}
 
-		let pos = Point2::new(tiles::TILE_SIZE * 14., tiles::TILE_SIZE * 10.);
-		spawn_demon(
-			comps::DemonKind::Demon3,
-			pos,
-			Vector2::zeros(),
-			&mut world,
-			state,
-		)?;
+		//let pos = Point2::new(tiles::TILE_SIZE * 12., tiles::TILE_SIZE * 10.);
+		//spawn_demon(
+		//	comps::DemonKind::Demon1,
+		//	pos,
+		//	Vector2::zeros(),
+		//	&mut world,
+		//	state,
+		//)?;
 
-		let pos = Point2::new(tiles::TILE_SIZE * 4., tiles::TILE_SIZE * 10.);
-		spawn_langolier(pos, &mut world, state)?;
-		spawn_langolier(pos, &mut world, state)?;
+		//let pos = Point2::new(tiles::TILE_SIZE * 8., tiles::TILE_SIZE * 10.);
+		//spawn_demon(
+		//	comps::DemonKind::Demon2,
+		//	pos,
+		//	Vector2::zeros(),
+		//	&mut world,
+		//	state,
+		//)?;
+
+		//let pos = Point2::new(tiles::TILE_SIZE * 14., tiles::TILE_SIZE * 10.);
+		//spawn_demon(
+		//	comps::DemonKind::Demon3,
+		//	pos,
+		//	Vector2::zeros(),
+		//	&mut world,
+		//	state,
+		//)?;
+
+		//let pos = Point2::new(tiles::TILE_SIZE * 4., tiles::TILE_SIZE * 10.);
+		//spawn_langolier(pos, &mut world, state)?;
+		//spawn_langolier(pos, &mut world, state)?;
 
 		let drill_sound = state.sfx.play_continuous_sound("data/drill.ogg", 1.)?;
 		drill_sound.set_gain(0.0).ok();
 
-		Ok(Self {
+		let mut map = Self {
 			world: world,
-			tiles: tiles::Tiles::new(16, 16)?,
-			camera_pos: comps::Position::new(Point2::origin()),
+			tiles: tiles,
+			camera_pos: comps::Position::new(start_pos),
 			player: player,
 			money_change_time: 0.,
 			money_change_amount: 0,
 			health_change_time: 0.,
 			health_change_amount: 0,
-			money: 100,
+			money: 0,
 			drill_sound: drill_sound,
-		})
+			messages: HashMap::new(),
+			message_queue: vec![],
+			shown_message_ids: vec![],
+			start_time: state.hs.time(),
+			end_time: None,
+		};
+
+		map.build_messages(state);
+
+		Ok(map)
+	}
+
+	fn build_messages(&mut self, state: &game_state::GameState)
+	{
+		self.messages.clear();
+
+		self.messages.insert(
+			MessageId::Start,
+			Message::new(&[
+				"Where am I? It is dark here. I should explore.",
+				&format!(
+					"Left: {}  Right: {}",
+					state
+						.options
+						.controls
+						.get_action_string(&game_state::Action::MoveLeft),
+					state
+						.options
+						.controls
+						.get_action_string(&game_state::Action::MoveRight)
+				),
+				&format!(
+					"Jump: {}",
+					state
+						.options
+						.controls
+						.get_action_string(&game_state::Action::Jump),
+				),
+			]),
+		);
+
+		self.messages.insert(
+			MessageId::Grinder,
+			Message::new(&["A grinder... I can feed it valuable items for money."]),
+		);
+
+		self.messages.insert(
+			MessageId::Demon,
+			Message::new(&[
+				"That demon looks valuable... and delicious",
+				&format!(
+					"I can drill to it.  Drill L/R: {} {}",
+					state
+						.options
+						.controls
+						.get_action_string(&game_state::Action::DrillLeft),
+					state
+						.options
+						.controls
+						.get_action_string(&game_state::Action::DrillRight),
+				),
+				&format!(
+					"Drill U/D: {} {}",
+					state
+						.options
+						.controls
+						.get_action_string(&game_state::Action::DrillUp),
+					state
+						.options
+						.controls
+						.get_action_string(&game_state::Action::DrillDown),
+				),
+			]),
+		);
+		self.messages.insert(
+			MessageId::Grab,
+			Message::new(&[&format!(
+				"Grab/throw: {}",
+				state
+					.options
+					.controls
+					.get_action_string(&game_state::Action::Pickup)
+			)]),
+		);
+		self.messages.insert(
+			MessageId::Build,
+			Message::new(&[
+				"With this money I can build, and climb to the surface.",
+				&format!(
+					"Torch: {}  Support: {}",
+					state
+						.options
+						.controls
+						.get_action_string(&game_state::Action::PlaceTorch),
+					state
+						.options
+						.controls
+						.get_action_string(&game_state::Action::PlaceSupport),
+				),
+				&format!(
+					"Jaunter: {}",
+					state
+						.options
+						.controls
+						.get_action_string(&game_state::Action::PlaceJaunter),
+				),
+			]),
+		);
+		self.messages.insert(
+			MessageId::Langolier,
+			Message::new(&["A langolier? Here? I must get avoid it..."]),
+		);
+		self.messages.insert(
+			MessageId::Surface1,
+			Message::new(&["Surface, at least... I am tired of these demons"]),
+		);
+		self.messages.insert(
+			MessageId::Surface2,
+			Message::new(&["No, Jeanne, you are the demons"]),
+		);
 	}
 
 	fn save(&mut self, state: &game_state::GameState) -> Result<()>
@@ -392,6 +599,9 @@ impl Map
 			money: self.money,
 			player: self.player,
 			tiles: self.tiles.clone(),
+			shown_message_ids: self.shown_message_ids.clone(),
+			start_time: self.start_time,
+			end_time: self.end_time,
 		};
 		println!("Saving");
 		utils::save_user_data(&state.hs.core, "save.cfg", &save)?;
@@ -405,11 +615,15 @@ impl Map
 		if let Some(save) = utils::load_user_data::<Save>(&state.hs.core, "save.cfg")?
 		{
 			state.hs.tick = save.tick;
+			state.hs.time = state.hs.tick as f64 * DT as f64;
 			self.world = save.world;
 			self.camera_pos = save.camera_pos;
 			self.money = save.money;
 			self.player = save.player;
 			self.tiles = save.tiles;
+			self.shown_message_ids = save.shown_message_ids;
+			self.start_time = save.start_time;
+			self.end_time = save.end_time;
 
 			for (_, appearance) in self.world.query_mut::<&comps::Appearance>()
 			{
@@ -422,6 +636,11 @@ impl Map
 	fn logic(&mut self, state: &mut game_state::GameState)
 	-> Result<Option<game_state::NextScreen>>
 	{
+		if state.hs.time() - self.start_time > 1.
+		{
+			show_message!(self, state, MessageId::Start);
+		}
+
 		if state
 			.controls
 			.get_action_state(game_state::Action::QuickSave)
@@ -610,6 +829,42 @@ impl Map
 				.clear_action_state(game_state::Action::PlaceJaunter);
 		}
 
+		if let Some(player_pos) = player_pos
+		{
+			if (player_pos.x - self.tiles.start_pos.x) / tiles::TILE_SIZE > 10.
+			{
+				show_message!(self, state, MessageId::Grinder);
+			}
+			if (player_pos.x - self.tiles.start_pos.x) / tiles::TILE_SIZE > 15.
+			{
+				show_message!(self, state, MessageId::Demon);
+			}
+			if (player_pos.x - self.tiles.start_pos.x) / tiles::TILE_SIZE > 20.
+			{
+				show_message!(self, state, MessageId::Grab);
+			}
+			if player_pos.y / tiles::TILE_SIZE < 11.0
+			{
+				self.message_queue
+					.push(self.messages[&MessageId::Surface1].show(state.hs.time()));
+				self.message_queue
+					.push(self.messages[&MessageId::Surface2].show(state.hs.time() + 14.));
+				self.end_time = Some(state.hs.time() + 14.);
+			}
+			if let Some(end_time) = self.end_time
+				&& state.hs.time() > end_time
+			{
+				spawn_demon(
+					comps::DemonKind::Demon1,
+					player_pos,
+					Vector2::zeros(),
+					&mut self.world,
+					state,
+				)?;
+				to_die.push(self.player);
+			}
+		}
+
 		// AI.
 		for (_id, (ai, position, mover)) in self
 			.world
@@ -629,6 +884,7 @@ impl Map
 						{
 							dir = (player_pos.x - pos.x).signum();
 							pursue_weight = 100.;
+							show_message!(self, state, MessageId::Langolier);
 						}
 					}
 
@@ -1275,7 +1531,7 @@ impl Map
 		}
 
 		// Grinder.
-		for (id, (_demon_kind, position, solid)) in self
+		for (id, (demon_kind, position, solid)) in self
 			.world
 			.query::<(&comps::DemonKind, &comps::Position, &comps::Solid)>()
 			.iter()
@@ -1289,6 +1545,7 @@ impl Map
 			) == tiles::TileKind::Grinder
 				&& solid.on_ground
 			{
+				show_message!(self, state, MessageId::Build);
 				state.sfx.play_positional_sound(
 					"data/grind.ogg",
 					position.pos,
@@ -1296,7 +1553,7 @@ impl Map
 					1.,
 				)?;
 
-				let amount = 100;
+				let amount = demon_kind.get_amount();
 				self.money += amount;
 				self.money_change_amount = amount;
 				self.money_change_time = state.hs.time();
@@ -1722,7 +1979,7 @@ impl Map
 			.hs
 			.core
 			.set_shader_sampler("light", rc_buffer.unwrap(), 1)
-			.unwrap();
+			.ok();
 		//.set_shader_sampler("light", state.light_buffer.as_ref().unwrap(), 1).ok();
 		state
 			.hs
@@ -1735,7 +1992,7 @@ impl Map
 						/ (state.hs.buffer_height() + game_state::RC_PAD as f32),
 				]][..],
 			)
-			.unwrap();
+			.ok();
 		state
 			.hs
 			.core
@@ -1750,7 +2007,7 @@ impl Map
 					// 	/ (state.hs.buffer_height() + game_state::RC_PAD as f32),
 				]][..],
 			)
-			.unwrap();
+			.ok();
 		batch.draw_triangles(state);
 
 		state
@@ -1759,12 +2016,51 @@ impl Map
 			.use_shader(state.basic_shader.as_ref())
 			.unwrap();
 
+		let pad = 8.;
+		let lh = state.hs.ui_font().get_line_height() as f32 + 2.;
+
+		let mut pop = false;
+		if let Some(message) = self.message_queue.first()
+		{
+			if state.hs.time() < message.time_to_hide
+			{
+				let sprite = state.get_sprite("data/talk1.cfg").unwrap();
+				sprite.draw_frame(
+					Point2::new(state.hs.buffer_width() / 2., state.hs.buffer_height() - 64.),
+					"Default",
+					0,
+					&state.hs.core,
+					&state.atlas,
+				);
+
+				let color = Color::from_rgb_f(0.9, 0.9, 0.9);
+				let mut y = state.hs.buffer_height() - 128.0 + 40.0;
+				for line in &message.lines
+				{
+					state.hs.core.draw_text(
+						state.hs.ui_font(),
+						color,
+						128.,
+						y,
+						FontAlign::Left,
+						&line,
+					);
+					y += lh;
+				}
+			}
+			else
+			{
+				pop = true;
+			}
+		}
+		if pop
+		{
+			self.message_queue.remove(0);
+		}
+
 		if let Ok(health) = self.world.query_one_mut::<&comps::Health>(self.player)
 		{
-			let pad = 8.;
-			let lh = state.hs.ui_font().get_line_height() as f32 + 2.;
-			let color = Color::from_rgb_f(0.8, 0.6, 0.7);
-
+			let color = Color::from_rgb_f(0.4, 0.6, 0.7);
 			state.hs.core.draw_text(
 				state.hs.ui_font(),
 				color,

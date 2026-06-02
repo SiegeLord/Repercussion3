@@ -220,7 +220,7 @@ impl GameState
 	pub fn resize_display(&mut self) -> Result<()>
 	{
 		self.hs
-			.resize_display("data/Energon.ttf", -16.0, &self.options.gfx)?;
+			.resize_display("data/8bitoperator_jve.ttf", -16.0, &self.options.gfx)?;
 
 		let buffer_width = self.hs.buffer_width() as i32 + RC_PAD;
 		let buffer_height = self.hs.buffer_height() as i32 + RC_PAD;

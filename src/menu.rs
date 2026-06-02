@@ -55,7 +55,16 @@ impl Menu
 
 	pub fn draw(&mut self, state: &game_state::GameState) -> Result<()>
 	{
-		state.hs.core.clear_to_color(Color::from_rgb_f(0., 0., 0.5));
+		state.hs.core.clear_to_color(Color::from_rgb_f(0., 0., 0.));
+		state.hs.core.draw_text(
+			state.hs.ui_font(),
+			ui::THEME.label,
+			state.hs.buffer_width() / 2.,
+			128.,
+			FontAlign::Centre,
+			"REPERCUSSION 3",
+		);
+
 		self.subscreens.draw(state);
 
 		Ok(())

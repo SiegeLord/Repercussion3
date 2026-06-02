@@ -3,6 +3,7 @@ use crate::{draw_batch, game_state};
 use nalgebra::{Point2, Point3, Vector2};
 use serde_derive::{Deserialize, Serialize};
 use slhack::utils;
+use rand::prelude::*;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -77,12 +78,17 @@ pub struct Tiles
 	tiles: Vec<TileKind>,
 	pub width: i32,
 	pub height: i32,
+	pub start_pos: Point2<f32>,
+	pub demons: Vec<Point2<f32>>,
+	pub langoliers: Vec<Point2<f32>>,
 }
 
 impl Tiles
 {
 	pub fn new(width: i32, height: i32) -> Result<Self>
 	{
+		let mut rng = rand::thread_rng();
+
 		let mut tiles = vec![
 			TileKind::Rock {
 				health: TILE_MAX_HEALTH,
@@ -93,16 +99,60 @@ impl Tiles
 			(width * height) as usize
 		];
 
-		let center = Point2::new(10., 10.);
-		for y in 0..height
+		let start_x = rng.gen_range(50..width - 50);
+		let start_y = rng.gen_range(height - 20..height - 10);
+		let mut demons = vec![];
+		let mut langoliers = vec![];
+
+		for x in start_x..start_x + 20
 		{
-			for x in 0..width
+			let height = rng.gen_range(2..5);
+			for y in start_y - height..start_y
 			{
-				let test_point = Point2::new(x, y).cast::<f32>();
-				if (test_point - center).norm() < 5. || y == 10
+				let tile_idx = y * width + x;
+				tiles[tile_idx as usize] = TileKind::Empty;
+			}
+		}
+
+		let tile_idx = start_y * width + start_x + 18;
+		tiles[tile_idx as usize] = TileKind::Grinder;
+
+		let tile_idx = (start_y - 1) * width + start_x + 22;
+		tiles[tile_idx as usize] = TileKind::Empty;
+
+		demons.push(Point2::new((start_x + 22) as f32 * TILE_SIZE, (start_y - 1) as f32 * TILE_SIZE));
+
+		let start_pos = Point2::new((start_x + 1) as f32 * TILE_SIZE, (start_y - 1) as f32 * TILE_SIZE);
+
+		for _ in 0..50
+		{
+			loop
+			{
+				let x = rng.gen_range(0..width);
+				let y = rng.gen_range(0..width);
+				if (start_y - y).abs() < 10
 				{
-					tiles[y as usize * width as usize + x as usize] = TileKind::Empty;
+					continue;
 				}
+				for xx in x - rng.gen_range(2..5)..x + rng.gen_range(2..5)
+				{
+					for yy in y - rng.gen_range(1..3)..y + rng.gen_range(1..3)
+					{
+						let tile_idx = utils::clamp(yy, 0, height - 1) * width + utils::clamp(xx, 0, width - 1);
+						tiles[tile_idx as usize] = TileKind::Empty;
+					}
+				}
+				let pos = Point2::new(x as f32 * TILE_SIZE, (y - 1) as f32 * TILE_SIZE);
+
+				if rng.gen_bool(0.5)
+				{
+					langoliers.push(pos);
+				}
+				else
+				{
+					demons.push(pos);
+				}
+				break;
 			}
 		}
 
@@ -128,7 +178,7 @@ impl Tiles
 				{
 					tiles[tile_idx as usize] = TileKind::Border;
 				}
-				if y < 3
+				if y < 10
 				{
 					tiles[tile_idx as usize] = TileKind::Sky;
 				}
@@ -141,6 +191,9 @@ impl Tiles
 			tiles: tiles,
 			width: width,
 			height: height,
+			start_pos: start_pos,
+			demons,
+			langoliers,
 		})
 	}
 
@@ -571,10 +624,16 @@ impl Tiles
 		state: &game_state::GameState, lit: bool,
 	) -> Result<()>
 	{
+		let width = (state.hs.buffer_width() / TILE_SIZE) as i32 + 2;
+		let height = (state.hs.buffer_height() / TILE_SIZE) as i32 + 2;
+
+		let start_x = utils::clamp(-(pos.x / TILE_SIZE) as i32, 0, self.width - 1);
+		let start_y = utils::clamp(-(pos.y / TILE_SIZE) as i32, 0, self.height - 1);
+
 		let sprite = state.get_sprite(sprite)?;
-		for y in 0..self.height
+		for y in start_y..(start_y + height).min(self.height)
 		{
-			for x in 0..self.width
+			for x in start_x..(start_x + width).min(self.width)
 			{
 				let tile_kind = self.tiles[y as usize * self.width as usize + x as usize];
 				let (frame, tile_height) = tile_kind.get_frame_and_height(state.hs.time());

@@ -225,6 +225,16 @@ impl DemonKind
 		}
 	}
 
+	pub fn get_amount(&self) -> i32
+	{
+		match self
+		{
+			DemonKind::Demon1 => 50,
+			DemonKind::Demon2 => 100,
+			DemonKind::Demon3 => 200,
+		}
+	}
+
 	pub fn mate_with(&self, _other: DemonKind) -> DemonKind
 	{
 		*self
