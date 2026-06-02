@@ -43,8 +43,11 @@ memoffset = "0.9.1"
 itertools = "0.14.0"
 semver = "1.0.28"
 
+[build-dependencies]
+winresource = "0.1"
+
 [profile.release]
 debug = true
 
 [features]
-use_user_settings = []
+use_user_settings = ["slhack/use_user_settings"]

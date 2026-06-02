@@ -643,11 +643,11 @@ impl Tiles
 		state: &game_state::GameState, lit: bool,
 	) -> Result<()>
 	{
-		let width = (state.hs.buffer_width() / TILE_SIZE) as i32 + 2;
-		let height = (state.hs.buffer_height() / TILE_SIZE) as i32 + 2;
+		let width = (state.hs.buffer_width() / TILE_SIZE) as i32 + 4;
+		let height = (state.hs.buffer_height() / TILE_SIZE) as i32 + 4;
 
-		let start_x = utils::clamp(-(pos.x / TILE_SIZE) as i32, 0, self.width - 1);
-		let start_y = utils::clamp(-(pos.y / TILE_SIZE) as i32, 0, self.height - 1);
+		let start_x = utils::clamp(-(pos.x / TILE_SIZE) as i32 - 2, 0, self.width - 1);
+		let start_y = utils::clamp(-(pos.y / TILE_SIZE) as i32 - 2, 0, self.height - 1);
 
 		let sprite = state.get_sprite(sprite)?;
 		for y in start_y..(start_y + height).min(self.height)

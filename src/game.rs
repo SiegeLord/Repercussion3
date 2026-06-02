@@ -1852,6 +1852,10 @@ impl Map
 		{
 			//println!("died {id:?}");
 			self.world.despawn(id)?;
+			if id == self.player
+			{
+				self.drill_sound.set_gain(0.).ok();
+			}
 		}
 
 		Ok(None)
