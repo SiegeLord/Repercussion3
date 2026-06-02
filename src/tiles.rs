@@ -124,13 +124,13 @@ impl Tiles
 
 		let start_pos = Point2::new((start_x + 1) as f32 * TILE_SIZE, (start_y - 1) as f32 * TILE_SIZE);
 
-		for _ in 0..50
+		for _ in 0..600
 		{
 			loop
 			{
 				let x = rng.gen_range(0..width);
-				let y = rng.gen_range(0..width);
-				if (start_y - y).abs() < 10
+				let y = rng.gen_range(0..height);
+				if (start_y - y).abs() < 7
 				{
 					continue;
 				}
@@ -184,8 +184,6 @@ impl Tiles
 				}
 			}
 		}
-
-		tiles[(width * (height - 1) + width / 2) as usize] = TileKind::Grinder;
 
 		Ok(Self {
 			tiles: tiles,

@@ -401,7 +401,7 @@ impl Map
 		{
 			let kind = if idx == 0
 			{
-				comps::DemonKind::Demon2
+				comps::DemonKind::Demon3
 			}
 			else
 			{
@@ -580,7 +580,7 @@ impl Map
 		);
 		self.messages.insert(
 			MessageId::Surface1,
-			Message::new(&["Surface, at least... I am tired of these demons"]),
+			Message::new(&["Surface, at last... I am tired of these demons"]),
 		);
 		self.messages.insert(
 			MessageId::Surface2,
@@ -1501,7 +1501,7 @@ impl Map
 
 			if let Some(entry) = entries.choose(&mut rng)
 			{
-				if rng.gen_bool(0.5)
+				if rng.gen_bool(0.2)
 				{
 					health.cur_health -= 1000.0;
 				}
